@@ -278,7 +278,19 @@
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
 
-    let socket = io();
+    // [MGI OVERRIDE]: Proteção à prova de falhas para o Socket.io (Se não achar o servidor, opera o HUD de forma isolada e segura)
+    let socket;
+    try {
+        if (typeof io !== 'undefined') {
+            socket = io();
+        } else {
+            throw new Error("Socket.io não encontrado na rede.");
+        }
+    } catch(e) {
+        console.warn("[SISTEMA MGI]: O Servidor não foi detectado. Rodando HUD em modo de simulação.");
+        socket = { emit: function(){}, on: function(){} };
+    }
+
     let localStream = null;
     let peerConnections = {};
     let lastSpeakingState = false;
@@ -298,16 +310,22 @@
         const code = document.getElementById('log-code').value;
         const div = document.getElementById('log-div').value;
         const errEl = document.getElementById('login-err');
+        const btnLogin = document.querySelector('.btn-login');
 
         if (code !== 'MGI2026') { errEl.style.display = 'block'; errEl.innerText = 'ACESSO NEGADO. CHAVE INVÁLIDA.'; return; }
         if (user === '') { errEl.style.display = 'block'; errEl.innerText = 'IDENTIFICAÇÃO OBRIGATÓRIA.'; return; }
 
         errEl.style.display = 'none';
+        
+        // [MGI OVERRIDE]: Alerta visual para o usuário aceitar o microfone antes de prosseguir
+        btnLogin.innerText = "PERMITA O MICROFONE NO NAVEGADOR...";
 
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const tempCtx = new AudioContext();
-            await tempCtx.resume();
+            if(AudioContext) {
+                const tempCtx = new AudioContext();
+                await tempCtx.resume();
+            }
         } catch(e) { /* ignora se não suportado */ }
 
         const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
@@ -381,6 +399,11 @@
 
     async function iniciarCapturaMicrofone() {
         try {
+            // [MGI OVERRIDE]: Proteção contra falhas de protocolo (HTTP local ou bloqueio de sistema)
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error("Microfone bloqueado pela segurança do navegador (necessita HTTPS/Localhost).");
+            }
+            
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
             });
@@ -398,6 +421,7 @@
             
             function checarVolume() {
                 requestAnimationFrame(checarVolume);
+                if (!localStream) return;
                 
                 if (isSelfMuted || currentUser.status === 'banned') {
                     if (localStream.getAudioTracks().length > 0) localStream.getAudioTracks()[0].enabled = false;
@@ -439,7 +463,7 @@
             }
             checarVolume();
         } catch (err) {
-            console.error("Erro de Microfone:", err);
+            console.warn("[SISTEMA MGI] Falha ou recusa na conexão do microfone:", err);
             const vadEl = document.getElementById('vad-status');
             if (vadEl) { vadEl.innerText = 'SEM MIC'; vadEl.style.color = 'orange'; }
         }
