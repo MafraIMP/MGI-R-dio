@@ -74,9 +74,8 @@
         }
         .btn-login:hover { background: var(--mafra); color: #fff; box-shadow: 0 0 30px rgba(176,38,255,0.4); }
 
-        /* PAINEL DE STATUS GERAL */
         #status-panel {
-            display: none; /* Oculto por padrão, revela ao logar */
+            display: none;
             position: fixed;
             top: 20px;
             right: 20px;
@@ -215,7 +214,6 @@
         
         .global-override-active { background: rgba(176,38,255,0.05); border: 8px solid var(--mafra); position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; display: none; }
 
-        /* PAINEL DE CHAT TEXTO */
         #chat-panel {
             position: fixed; left: -400px; top: 0; width: 400px; height: 100%;
             background: var(--panel-bg); border-right: 1px solid var(--mafra);
@@ -232,7 +230,6 @@
         .chat-input { flex: 1; background: #000; border: 1px solid #333; padding: 10px; color: #fff; font-family: var(--font-ui); outline: none; }
         .chat-input:focus { border-color: var(--mafra); }
 
-        /* ESTILOS DO SLIDER DE FILTRO DE RUÍDO */
         .slider-container { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
         .slider-container input[type="range"] { -webkit-appearance: none; width: 120px; background: transparent; }
         .slider-container input[type="range"]::-webkit-slider-thumb {
@@ -395,11 +392,6 @@
         }
     });
 
-    // BAN CHECKER AT LOAD
-    if (localStorage.getItem('mgi_banned_state') === 'true') {
-        renderBannedScreen();
-    }
-
     let currentUser = null;
     let systemUsers = []; 
     let activeLeaderPTTs = new Set();
@@ -413,7 +405,6 @@
     let inCommandRoom = false;
     let currentMGIStatus = "4-7 (Pacificação)";
     
-    // Variável para o controle de limite de ruído (Noise Gate)
     let noiseThreshold = 15;
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
@@ -435,13 +426,11 @@
     let lastSpeakingState = false;
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    // Atualização dinâmica do controle de Ruído
     document.getElementById('noise-gate-slider').addEventListener('input', function(e) {
         noiseThreshold = parseInt(e.target.value);
         document.getElementById('noise-gate-val').innerText = noiseThreshold;
     });
 
-    // AUDIO CHIME GENERATOR
     function playSystemChime(type) {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -454,15 +443,15 @@
             
             if (type === 'entry') {
                 osc.type = 'sine';
-                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); 
                 gain.gain.setValueAtTime(0.15, ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
                 osc.start(); osc.stop(ctx.currentTime + 0.3);
             } else if (type === 'exit') {
                 osc.type = 'sine';
-                osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-                osc.frequency.setValueAtTime(440, ctx.currentTime + 0.1); // A4
+                osc.frequency.setValueAtTime(880, ctx.currentTime); 
+                osc.frequency.setValueAtTime(440, ctx.currentTime + 0.1); 
                 gain.gain.setValueAtTime(0.15, ctx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
                 osc.start(); osc.stop(ctx.currentTime + 0.3);
@@ -470,7 +459,6 @@
         } catch(e){}
     }
 
-    // MALE ROBOT TTS READER
     function speakWithRobotVoice(text) {
         if (!window.speechSynthesis) return;
         window.speechSynthesis.cancel();
@@ -481,12 +469,11 @@
         if (!maleVoice) maleVoice = voices.find(v => v.lang.includes('pt'));
         
         if (maleVoice) utterance.voice = maleVoice;
-        utterance.pitch = 0.75; // Tom mais grave/robótico
-        utterance.rate = 1.0;
+        utterance.pitch = 0.75; 
+        utterance.rate = 1.3; // Aumentada a velocidade de leitura
         window.speechSynthesis.speak(utterance);
     }
 
-    // CHECK FOR CLONE PROFILE LOCK
     window.addEventListener('DOMContentLoaded', () => {
         const savedProfile = localStorage.getItem('mgi_locked_account');
         if (savedProfile) {
@@ -535,7 +522,6 @@
             division: isMafra ? 'purpura' : div, avatar: localAvatarData, status: 'active', inCommandRoom: false
         };
 
-        // LOCK THE BROWSER PORT TO THIS INSTANCE FOREVER (ANTI-300x ACCOUNTS)
         if (!localStorage.getItem('mgi_locked_account')) {
             localStorage.setItem('mgi_locked_account', JSON.stringify({ name: user, division: currentUser.division }));
         }
@@ -549,7 +535,6 @@
     function iniciarInterfaceHUD() {
         document.getElementById('login-overlay').style.display = 'none';
         
-        // Revelar Status da Missão e HUD apenas após o login
         document.getElementById('map-container').style.display = 'block';
         document.getElementById('bottom-hud').style.display = 'flex';
         document.getElementById('status-panel').style.display = 'block'; 
@@ -618,15 +603,11 @@
         }
     }
 
-    // --- SISTEMA DE STATUS GLOBAL E VOZ ---
-    
-    // Função corrigida para aplicar as alterações do Status localmente no instante do select
     function changeGlobalStatus(newStatus) {
         if (currentUser.role !== 'imperador') return;
         currentMGIStatus = newStatus;
         socket.emit('mgi-status-change', newStatus);
         
-        // Aplica o protocolo visual e sonoro localmente para quem invocou
         aplicarStatusLocal(newStatus);
     }
 
@@ -640,7 +621,6 @@
             display.classList.remove('status-danger');
         }
 
-        // Sincronizar o menu select caso a mudança venha do exterior
         const selector = document.getElementById('status-selector');
         if (selector && selector.value !== statusString) {
             selector.value = statusString;
@@ -653,27 +633,34 @@
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
             const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
             
-            // Som de Metrô (Ding-Dong)
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(880, ctx.currentTime);
-            osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.4);
-            gain.gain.setValueAtTime(0.3, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
-            
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 1.0);
+            // Toque sério de alerta / Sirene Industrial
+            for (let i = 0; i < 3; i++) {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                
+                osc.type = 'square'; 
+                osc.frequency.setValueAtTime(600, ctx.currentTime + (i * 0.8));
+                osc.frequency.setValueAtTime(800, ctx.currentTime + (i * 0.8) + 0.4);
+                
+                gain.gain.setValueAtTime(0, ctx.currentTime + (i * 0.8));
+                gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + (i * 0.8) + 0.05);
+                gain.gain.setValueAtTime(0.15, ctx.currentTime + (i * 0.8) + 0.75);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + (i * 0.8) + 0.8);
+                
+                osc.start(ctx.currentTime + (i * 0.8));
+                osc.stop(ctx.currentTime + (i * 0.8) + 0.8);
+            }
         }
 
         setTimeout(() => {
             if (!window.speechSynthesis) return;
             window.speechSynthesis.cancel();
             
-            const code = statusString.split(' ')[0];
+            // Correção da leitura de 4-7 para 4 7
+            const code = statusString.split(' ')[0].replace('-', ' ');
             const utterance = new SpeechSynthesisUtterance(`Estatus da EME GÊ Í. Código ${code}.`);
             const voices = window.speechSynthesis.getVoices();
             
@@ -682,10 +669,10 @@
             
             if (maleVoice) utterance.voice = maleVoice;
             utterance.pitch = 0.1; 
-            utterance.rate = 0.85; 
+            utterance.rate = 1.25; // Velocidade maior
             
             window.speechSynthesis.speak(utterance);
-        }, 1200); 
+        }, 2600); 
     }
 
     function toggleLeaderCall() {
@@ -754,7 +741,6 @@
                 const vadStatus = document.getElementById('vad-status');
                 const myNode = document.getElementById(`node_${currentUser.id}`);
 
-                // Sistema de filtro dinâmico: noiseThreshold substituindo valor estático de 15
                 if (mediaVolume > noiseThreshold) {
                     vadStatus.innerText = 'ON'; vadStatus.style.color = 'var(--success)';
                     if(myNode) myNode.classList.add('mic-open');
@@ -824,7 +810,6 @@
                     audioEl.muted = false; return;
                 }
 
-                // Lógica da Sala de Comando
                 if (inCommandRoom) {
                     audioEl.muted = !(u.inCommandRoom === true);
                     return;
@@ -929,11 +914,14 @@
 
     function renderBannedScreen() {
         if(localStream) { localStream.getTracks().forEach(track => track.stop()); } 
+        // Emudece todo áudio externo imediatamente
+        document.querySelectorAll('audio').forEach(a => a.muted = true);
+        
         document.body.innerHTML = `
             <div style="background-color: #0b0103; color: var(--danger); display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; width: 100vw; font-family: 'Space Mono', monospace; font-size: 2rem; text-transform: uppercase; letter-spacing: 2px; border: 5px solid var(--danger);">
                 <i class="fa-solid fa-ban" style="font-size: 5rem; margin-bottom: 20px; text-shadow: 0 0 20px var(--danger);"></i>
                 <div>ACESSO CORTADO // DISPOSITIVO BANIDO</div>
-                <div style="font-size: 0.9rem; color: #555; margin-top: 15px; letter-spacing: 1px;">Sua chave de autorização no Nexus foi permanentemente revogada.</div>
+                <div style="font-size: 0.9rem; color: #555; margin-top: 15px; letter-spacing: 1px;">Sua chave de autorização no Nexus foi permanentemente revogada pelo Comando.</div>
             </div>
         `;
     }
@@ -1037,7 +1025,14 @@
     }
 
     function admAction(id, action, fromServer) { 
+        // Garante que a ação não seja duplicada (bate e volta)
+        if (fromServer !== 'fromServer') {
+            socket.emit('admin-action-execute', { targetId: id, action: action });
+            return;
+        }
+
         const user = systemUsers.find(u => u.id === id); if(!user) return;
+        
         if (action === 'role') {
             if (user.role === 'membro') {
                 let liderAtual = systemUsers.find(u => u.division === user.division && u.role === 'lider');
@@ -1053,11 +1048,11 @@
         } else if (action === 'kick') { user.status = 'kicked'; }
         
         updateHUDButtons(); updateCommsStatusText(); renderAdminPanel(); renderTopology();
-        if (fromServer !== 'fromServer') { socket.emit('admin-action-execute', { targetId: id, action: action }); }
     }
 
     socket.on('kicked-from-network', () => {
         if(localStream) { localStream.getTracks().forEach(track => track.stop()); } 
+        document.querySelectorAll('audio').forEach(a => a.muted = true);
         document.body.innerHTML = `
             <div style="background-color: black; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; width: 100vw; font-family: 'Space Mono', monospace; font-size: 2rem; text-transform: uppercase; letter-spacing: 2px;">
                 Sua conexão foi cortada!
@@ -1067,8 +1062,23 @@
     });
 
     socket.on('banned-from-network-lock', () => {
-        localStorage.setItem('mgi_banned_state', 'true');
         renderBannedScreen();
+    });
+
+    socket.on('banned-user-attempt', (name) => {
+        if (currentUser && currentUser.role === 'imperador') {
+            if(confirm(`🚨 ATENÇÃO: O agente banido '${name}' tentou acessar o Nexus.\nDeseja remover o banimento e liberar o acesso dele?`)) {
+                socket.emit('unban-user-request', name);
+            }
+        }
+    });
+
+    socket.on('unban-success', (name) => {
+        const userInput = document.getElementById('log-user');
+        if (userInput && userInput.value.trim() === name) {
+            alert(`O acesso para '${name}' foi restaurado pelo Comando Central.\nA página será recarregada.`);
+            location.reload();
+        }
     });
 
     socket.on('muted-chat-msg-broadcast', (data) => {
