@@ -76,6 +76,7 @@
 
         /* PAINEL DE STATUS GERAL */
         #status-panel {
+            display: none; /* Oculto por padrão, revela ao logar */
             position: fixed;
             top: 20px;
             right: 20px;
@@ -230,6 +231,17 @@
         .chat-footer { padding: 15px; border-top: 1px solid #222; display: flex; gap: 10px; }
         .chat-input { flex: 1; background: #000; border: 1px solid #333; padding: 10px; color: #fff; font-family: var(--font-ui); outline: none; }
         .chat-input:focus { border-color: var(--mafra); }
+
+        /* ESTILOS DO SLIDER DE FILTRO DE RUÍDO */
+        .slider-container { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+        .slider-container input[type="range"] { -webkit-appearance: none; width: 120px; background: transparent; }
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%;
+            background: var(--mafra); cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px var(--mafra);
+        }
+        .slider-container input[type="range"]::-webkit-slider-runnable-track {
+            width: 100%; height: 2px; cursor: pointer; background: #333; border-radius: 1px;
+        }
     </style>
 </head>
 <body>
@@ -361,8 +373,13 @@
             </div>
         </div>
 
-        <div style="width: 300px; text-align: right;">
-            <span style="font-family:var(--font-ui); font-size:0.7rem; color:#444;">VAD DETECT: <span id="vad-status">OFF</span></span>
+        <!-- PAINEL VAD E CONTROLE DE RUÍDO -->
+        <div style="width: 300px; text-align: right; display: flex; flex-direction: column; align-items: flex-end; justify-content: center;">
+            <span style="font-family:var(--font-ui); font-size:0.75rem; color:#888;">VAD DETECT: <span id="vad-status" style="font-weight:bold;">OFF</span></span>
+            <div class="slider-container">
+                <span style="font-family:var(--font-ui); font-size:0.65rem; color:#666;">RUÍDO (<span id="noise-gate-val">15</span>)</span>
+                <input type="range" id="noise-gate-slider" min="1" max="100" value="15">
+            </div>
         </div>
     </div>
 
@@ -395,6 +412,9 @@
     let localAvatarData = '';
     let inCommandRoom = false;
     let currentMGIStatus = "4-7 (Pacificação)";
+    
+    // Variável para o controle de limite de ruído (Noise Gate)
+    let noiseThreshold = 15;
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
 
@@ -414,6 +434,12 @@
     let peerConnections = {};
     let lastSpeakingState = false;
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    // Atualização dinâmica do controle de Ruído
+    document.getElementById('noise-gate-slider').addEventListener('input', function(e) {
+        noiseThreshold = parseInt(e.target.value);
+        document.getElementById('noise-gate-val').innerText = noiseThreshold;
+    });
 
     // AUDIO CHIME GENERATOR
     function playSystemChime(type) {
@@ -522,8 +548,11 @@
 
     function iniciarInterfaceHUD() {
         document.getElementById('login-overlay').style.display = 'none';
+        
+        // Revelar Status da Missão e HUD apenas após o login
         document.getElementById('map-container').style.display = 'block';
         document.getElementById('bottom-hud').style.display = 'flex';
+        document.getElementById('status-panel').style.display = 'block'; 
 
         const color = divisionColors[currentUser.division];
         document.getElementById('hud-name').innerText = currentUser.name;
@@ -590,9 +619,34 @@
     }
 
     // --- SISTEMA DE STATUS GLOBAL E VOZ ---
+    
+    // Função corrigida para aplicar as alterações do Status localmente no instante do select
     function changeGlobalStatus(newStatus) {
         if (currentUser.role !== 'imperador') return;
+        currentMGIStatus = newStatus;
         socket.emit('mgi-status-change', newStatus);
+        
+        // Aplica o protocolo visual e sonoro localmente para quem invocou
+        aplicarStatusLocal(newStatus);
+    }
+
+    function aplicarStatusLocal(statusString) {
+        const display = document.getElementById('current-status-display');
+        display.innerText = statusString;
+        
+        if (statusString.startsWith('4-0') || statusString.startsWith('4-1') || statusString.startsWith('4-2')) {
+            display.classList.add('status-danger');
+        } else {
+            display.classList.remove('status-danger');
+        }
+
+        // Sincronizar o menu select caso a mudança venha do exterior
+        const selector = document.getElementById('status-selector');
+        if (selector && selector.value !== statusString) {
+            selector.value = statusString;
+        }
+
+        playMetroAlertAndSpeak(statusString);
     }
 
     function playMetroAlertAndSpeak(statusString) {
@@ -700,7 +754,8 @@
                 const vadStatus = document.getElementById('vad-status');
                 const myNode = document.getElementById(`node_${currentUser.id}`);
 
-                if (mediaVolume > 15) {
+                // Sistema de filtro dinâmico: noiseThreshold substituindo valor estático de 15
+                if (mediaVolume > noiseThreshold) {
                     vadStatus.innerText = 'ON'; vadStatus.style.color = 'var(--success)';
                     if(myNode) myNode.classList.add('mic-open');
                 } else {
@@ -708,7 +763,7 @@
                     if(myNode) myNode.classList.remove('mic-open');
                 }
 
-                let currentSpeaking = (mediaVolume > 15);
+                let currentSpeaking = (mediaVolume > noiseThreshold);
                 if (currentSpeaking !== lastSpeakingState) {
                     lastSpeakingState = currentSpeaking;
                     socket.emit('voice-state', currentSpeaking);
@@ -1037,16 +1092,8 @@
     });
 
     socket.on('mgi-status-broadcast', (statusString) => {
-        const display = document.getElementById('current-status-display');
-        display.innerText = statusString;
-        
-        if (statusString.startsWith('4-0') || statusString.startsWith('4-1') || statusString.startsWith('4-2')) {
-            display.classList.add('status-danger');
-        } else {
-            display.classList.remove('status-danger');
-        }
-
-        playMetroAlertAndSpeak(statusString);
+        currentMGIStatus = statusString;
+        aplicarStatusLocal(statusString);
     });
 
     socket.on('user-command-room-updated', (data) => {
@@ -1071,6 +1118,7 @@
         activeMafraTargetDivision = serverState.mafraTargetDivision || null;
         
         if (serverState.mgiStatus) {
+            currentMGIStatus = serverState.mgiStatus;
             const display = document.getElementById('current-status-display');
             display.innerText = serverState.mgiStatus;
             if (serverState.mgiStatus.startsWith('4-0') || serverState.mgiStatus.startsWith('4-1') || serverState.mgiStatus.startsWith('4-2')) {
