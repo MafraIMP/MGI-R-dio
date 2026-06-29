@@ -15,7 +15,7 @@
             --mafra: #b026ff;
             --vermelho: #ff1a1a;
             --amarelo: #ffcc00;
-            --purpura: #8a2be2; /* Substitui o Azul */
+            --purpura: #8a2be2; 
             --cinza: #a0a0a0;
             --text-main: #f0f0f0;
             --panel-bg: rgba(5, 5, 8, 0.95);
@@ -41,7 +41,6 @@
             flex-direction: column;
         }
 
-        /* ================= LOGIN ================= */
         #login-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.95); z-index: 1000;
@@ -75,7 +74,6 @@
         }
         .btn-login:hover { background: var(--mafra); color: #fff; box-shadow: 0 0 30px rgba(176,38,255,0.4); }
 
-        /* ================= MAPA TOPOLÓGICO ================= */
         #map-container { display: none; flex: 1; overflow: auto; padding: 40px; }
         .topology-wrapper { display: flex; flex-direction: column; align-items: center; min-width: 1400px; padding-bottom: 120px; }
         
@@ -88,7 +86,7 @@
             border-radius: 50%; display: flex; justify-content: center; align-items: center;
             background-size: cover; background-position: center; position: relative;
             cursor: pointer; border: 2px solid #333; background-color: #0a0a0a;
-            transition: all 0.1s; /* Rápido para a voz */
+            transition: all 0.1s; 
             z-index: 10;
         }
         .node-name {
@@ -97,7 +95,6 @@
             white-space: nowrap; transition: color 0.3s;
         }
 
-        /* Efeito Microfone Aberto (Pulsar Ativo por Voz) */
         .node.mic-open { border-color: currentColor; box-shadow: 0 0 25px currentColor; transform: scale(1.1); }
         .node.mic-open::before {
             content: ''; position: absolute; top: -5px; left: -5px; right: -5px; bottom: -5px;
@@ -131,7 +128,6 @@
         .node.ghost { background: transparent; border: 1px dashed #444; color: #444; cursor: default; box-shadow: none; }
         .node.ghost::before { display: none; }
 
-        /* ================= HUD INFERIOR TÁTICO ================= */
         #bottom-hud {
             position: fixed; bottom: 0; left: 0; width: 100%; height: 110px;
             background: #050505; border-top: 1px solid #222; display: flex;
@@ -147,7 +143,6 @@
         .comms-status { font-family: var(--font-ui); font-size: 0.85rem; color: #aaa; text-align: center; }
         .comms-highlight { color: #fff; font-weight: bold; }
 
-        /* Botões Gerais */
         .btn {
             padding: 10px 20px; border-radius: 4px; border: 1px solid currentColor; background: transparent;
             color: inherit; font-family: var(--font-ui); font-size: 0.9rem; font-weight: bold; cursor: pointer;
@@ -157,7 +152,6 @@
         .btn:active { transform: scale(0.97); }
         .btn.active-state { background: currentColor; color: #000; box-shadow: 0 0 20px currentColor; }
 
-        /* ================= PAINEL DO IMPERADOR ================= */
         #admin-panel {
             position: fixed; right: -400px; top: 0; width: 400px; height: 100%;
             background: var(--panel-bg); border-left: 1px solid var(--mafra);
@@ -269,7 +263,6 @@
 <script>
     let currentUser = null;
     let systemUsers = [
-        // Adicionando alguns bots genéricos apenas para o Mafra ter quem gerenciar no painel no primeiro login
         { id: 'b1', name: 'GHOST_01', role: 'membro', division: 'vermelho', status: 'active', attn: false, avatar: '' },
         { id: 'b2', name: 'ECHO_09', role: 'lider', division: 'amarelo', status: 'active', attn: false, avatar: '' }
     ]; 
@@ -280,16 +273,12 @@
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
 
-    // ADICIONADO: Variáveis de infraestrutura de rede WebRTC / Sockets
     let socket = io();
     let localStream = null;
     let peerConnections = {};
     let lastSpeakingState = false;
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    // ==========================================
-    // UPLOAD DE IMAGEM LOCAL
-    // ==========================================
     document.getElementById('log-avatar').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (file) {
@@ -301,9 +290,6 @@
         }
     });
 
-    // ==========================================
-    // LOGIN
-    // ==========================================
     function executarLogin() {
         const user = document.getElementById('log-user').value.trim();
         const code = document.getElementById('log-code').value;
@@ -321,7 +307,7 @@
             id: 'u_' + Date.now(),
             name: user,
             role: isMafra ? 'imperador' : 'membro',
-            division: isMafra ? 'roxo' : div, // Mafra no topo
+            division: isMafra ? 'roxo' : div, 
             avatar: localAvatarData,
             status: 'active',
             attn: false
@@ -329,9 +315,8 @@
 
         systemUsers.push(currentUser);
         iniciarInterfaceHUD();
-        iniciarCapturaMicrofone(); // Inicia o Analisador de Áudio Real
+        iniciarCapturaMicrofone(); 
 
-        // ADICIONADO: Sincroniza a entrada do agente com o servidor central
         socket.emit('join-network', currentUser);
     }
 
@@ -378,14 +363,9 @@
         }
     }
 
-    // ==========================================
-    // CAPTURA DE MICROFONE REAL (VAD)
-    // ==========================================
     async function iniciarCapturaMicrofone() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            // ADICIONADO: Vincula a captura do hardware ao fluxo de áudio WebRTC global
             localStream = stream;
 
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -407,7 +387,6 @@
                     const node = document.getElementById(`node_${currentUser.id}`);
                     if(node) node.classList.remove('mic-open');
                     
-                    // ADICIONADO: Avisa os peers se estiver mutado
                     if(lastSpeakingState !== false) {
                         lastSpeakingState = false;
                         socket.emit('voice-state', false);
@@ -425,7 +404,6 @@
                 const vadStatus = document.getElementById('vad-status');
                 const myNode = document.getElementById(`node_${currentUser.id}`);
 
-                // Threshold de Ativação (Ajuste se precisar, 15 é bom para não pegar chiado)
                 if (mediaVolume > 15) {
                     vadStatus.innerText = 'ON';
                     vadStatus.style.color = 'var(--success)';
@@ -436,7 +414,6 @@
                     if(myNode) myNode.classList.remove('mic-open');
                 }
 
-                // ADICIONADO: Sincroniza o estado de transmissão da voz com os outros terminais da rede
                 let currentSpeaking = (mediaVolume > 15);
                 if (currentSpeaking !== lastSpeakingState) {
                     lastSpeakingState = currentSpeaking;
@@ -470,33 +447,83 @@
         }
     }
 
-    // ==========================================
-    // TOPOLOGIA EXATA
-    // ==========================================
+    // ADICIONADO: Função crucial para silenciar ou liberar fluxos de áudio WebRTC de acordo com a centralização
+    function enforceAudioRouting() {
+        systemUsers.forEach(u => {
+            if (u.id === currentUser.id || !u.socketId) return;
+            const audioEl = document.getElementById(`audio_${u.socketId}`);
+            if (audioEl) {
+                if (isDecentralized) {
+                    audioEl.muted = (u.status === 'banned');
+                } else {
+                    const sameDivision = (u.division === currentUser.division);
+                    const isImperador = (u.role === 'imperador' || currentUser.role === 'imperador');
+                    
+                    if (isImperador || sameDivision) {
+                        audioEl.muted = (u.status === 'banned');
+                    } else {
+                        audioEl.muted = true; 
+                    }
+                }
+            }
+        });
+    }
+
+    // CORRIGIDO: Estrutura Topológica modificada para colocar a Divisão Púrpura na horizontal (4 slots à esquerda e 4 à direita)
     function renderTopology() {
         const root = document.getElementById('topology-root');
         root.innerHTML = '';
 
         const mafraUser = systemUsers.find(u => u.role === 'imperador');
-        const divisions = ['vermelho', 'amarelo', 'purpura', 'cinza'];
+        const purpuraUsers = systemUsers.filter(u => u.division === 'purpura' && u.status !== 'kicked');
+        const remainingDivisions = ['vermelho', 'amarelo', 'cinza'];
 
-        let html = `<div class="tier-mafra node-wrapper">`;
+        let purpuraLeftHTML = '';
+        let purpuraRightHTML = '';
+
+        for (let i = 0; i < 4; i++) {
+            if (purpuraUsers[i]) {
+                purpuraLeftHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`;
+            } else {
+                purpuraLeftHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`;
+            }
+        }
+        for (let i = 4; i < 8; i++) {
+            if (purpuraUsers[i]) {
+                purpuraRightHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`;
+            } else {
+                purpuraRightHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`;
+            }
+        }
+
+        let html = `
+        <div style="display: flex; align-items: center; justify-content: center; gap: 40px; width: 100%; margin-bottom: 20px;">
+            <div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraLeftHTML}</div>
+            <div class="tier-mafra node-wrapper">
+        `;
+        
         if (mafraUser) {
             html += createNodeHTML(mafraUser);
-            html += `<div class="connector-line" style="height: 40px; background: var(--mafra);"></div>`;
         } else {
             html += `<div class="node ghost"><i class="fa-solid fa-crown"></i></div>`;
             html += `<div class="node-name" style="color:#444; border:none; background:transparent;">TRONO VAZIO</div>`;
-            html += `<div class="connector-line" style="height: 40px;"></div>`;
         }
-        html += `</div><div class="connector-horizontal"></div><div class="divisions-container">`;
+        
+        html += `
+            </div>
+            <div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraRightHTML}</div>
+        </div>
+        <div class="connector-line" style="height: 30px; background: rgba(255,255,255,0.1);"></div>
+        <div class="connector-horizontal" style="width: 70%;"></div>
+        <div class="divisions-container">
+        `;
 
-        divisions.forEach(div => {
+        remainingDivisions.forEach(div => {
             const divUsers = systemUsers.filter(u => u.division === div && u.status !== 'kicked');
             const lider = divUsers.find(u => u.role === 'lider');
             const membros = divUsers.filter(u => u.role === 'membro');
 
-            html += `<div class="division div-${div}">`;
+            html += `<div class="division div-${div}" style="width: 33.33%;">`;
             html += `<div class="connector-line" style="height: 30px;"></div>`;
             
             html += `<div class="tier-lider node-wrapper">`;
@@ -520,11 +547,12 @@
         html += `</div>`;
         root.innerHTML = html;
         
-        // Re-aplica classes de mudo local se renderizou de novo
         if(isSelfMuted) {
             const myNode = document.getElementById(`node_${currentUser.id}`);
             if(myNode) myNode.classList.add('self-muted');
         }
+
+        enforceAudioRouting();
     }
 
     function createNodeHTML(user) {
@@ -540,9 +568,6 @@
         return `<div class="node ${extraClass}" id="node_${user.id}" style="${bg}">${icon}</div><div class="node-name">${user.name}</div>`;
     }
 
-    // ==========================================
-    // CONTROLES DO IMPERADOR (PAINEL E OVERRIDE)
-    // ==========================================
     function startPTTMafra() {
         document.getElementById('btn-ptt-mafra').classList.add('active-state');
         document.getElementById('global-override-ui').style.display = 'block';
@@ -566,7 +591,6 @@
         if(isDecentralized) {
             btn.classList.add('active-state');
             btn.innerHTML = `<i class="fa-solid fa-earth-americas"></i> REDE DESCENTRALIZADA (GLOBAL)`;
-            // Efeito visual no fundo
             document.body.style.backgroundImage = 'linear-gradient(rgba(0,255,85, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,85, 0.1) 1px, transparent 1px)';
         } else {
             btn.classList.remove('active-state');
@@ -574,8 +598,8 @@
             document.body.style.backgroundImage = 'linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px)';
         }
         updateCommsStatusText();
+        enforceAudioRouting();
 
-        // ADICIONADO: Propaga o comando de layout de rede para os outros clientes, evitando eco infinito
         if (arguments[0] !== 'fromServer') {
             socket.emit('decentralize-network-execute', isDecentralized);
         }
@@ -588,7 +612,7 @@
         list.innerHTML = '';
 
         systemUsers.forEach(u => {
-            if(u.role === 'imperador') return; // Não gerencia a si mesmo
+            if(u.role === 'imperador') return; 
             
             const isLider = u.role === 'lider';
             const isBanned = u.status === 'banned';
@@ -619,7 +643,6 @@
 
         if (action === 'role') {
             if (user.role === 'membro') {
-                // Rebaixa atual líder daquela divisão se existir
                 let liderAtual = systemUsers.find(u => u.division === user.division && u.role === 'lider');
                 if (liderAtual) liderAtual.role = 'membro';
                 user.role = 'lider';
@@ -635,17 +658,12 @@
         renderAdminPanel();
         renderTopology();
 
-        // ADICIONADO: Dispara a alteração de permissões para o servidor sincronizar todos os clientes
         if (arguments[2] !== 'fromServer') {
             socket.emit('admin-action-execute', { targetId: id, action: action });
         }
     }
 
-    // ==========================================
-    // ADICIONADO: Ouvintes WebSocket e Orquestração do WebRTC
-    // ==========================================
     socket.on('network-users', (serverUsers, serverDecentralized) => {
-        // Une os usuários reais vindos do servidor aos bots do template original
         serverUsers.forEach(sUser => {
             if (sUser.id !== currentUser.id) {
                 let exists = systemUsers.find(u => u.id === sUser.id);
@@ -661,7 +679,6 @@
         renderTopology();
         renderAdminPanel();
 
-        // Conecta-se em malha com todos os agentes pré-existentes na chamada
         serverUsers.forEach(sUser => {
             if (sUser.socketId && sUser.socketId !== socket.id) {
                 initiatePeerConnection(sUser.socketId, true);
@@ -758,11 +775,11 @@
                 remoteAudio = document.createElement('audio');
                 remoteAudio.id = `audio_${targetSocketId}`;
                 remoteAudio.autoplay = true;
-                // Deixa o elemento invisível na UI
                 remoteAudio.style.display = 'none'; 
                 document.body.appendChild(remoteAudio);
             }
             remoteAudio.srcObject = event.streams[0];
+            enforceAudioRouting(); 
         };
 
         if (isOfferor) {
