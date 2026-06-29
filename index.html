@@ -216,8 +216,7 @@
             <h2><i class="fa-solid fa-chess-king"></i> COMANDO CENTRAL</h2>
             <i class="fa-solid fa-xmark close-admin" onclick="toggleAdminPanel()"></i>
         </div>
-        <div class="admin-body" id="admin-user-list">
-            </div>
+        <div class="admin-body" id="admin-user-list"></div>
         <div class="admin-footer">
             <button class="btn" id="btn-decentralize" style="width: 100%; justify-content: center; border-color: var(--success); color: var(--success);" onclick="toggleDecentralize()">
                 <i class="fa-solid fa-earth-americas"></i> DESCENTRALIZAR REDE
@@ -246,9 +245,14 @@
                     <i class="fa-solid fa-microphone"></i> <span>SILENCIAR</span>
                 </button>
 
+                <button class="btn" id="btn-ptt-lideres" onmousedown="startPTTLideres()" onmouseup="stopPTTLideres()" onmouseleave="stopPTTLideres()" style="display:none; color: var(--success); border-color: var(--success);">
+                    <i class="fa-solid fa-radio"></i> PTT LÍDERES
+                </button>
+
                 <button class="btn" id="btn-ptt-mafra" onmousedown="startPTTMafra()" onmouseup="stopPTTMafra()" onmouseleave="stopPTTMafra()" style="display:none; color: var(--mafra);">
                     <i class="fa-solid fa-tower-broadcast"></i> OVERRIDE
                 </button>
+                
                 <button class="btn" id="btn-open-admin" onclick="toggleAdminPanel()" style="display:none; color: var(--mafra);">
                     <i class="fa-solid fa-sliders"></i> PAINEL ADM
                 </button>
@@ -256,16 +260,15 @@
         </div>
 
         <div style="width: 300px; text-align: right;">
-            <span style="font-family:var(--font-ui); font-size:0.7rem; color:#444;">VAD DETECT: <span id="vad-status">OFF</span> | PING: 12ms</span>
+            <span style="font-family:var(--font-ui); font-size:0.7rem; color:#444;">VAD DETECT: <span id="vad-status">OFF</span></span>
         </div>
     </div>
 
 <script>
     let currentUser = null;
-    let systemUsers = [
-        { id: 'b1', name: 'GHOST_01', role: 'membro', division: 'vermelho', status: 'active', attn: false, avatar: '' },
-        { id: 'b2', name: 'ECHO_09', role: 'lider', division: 'amarelo', status: 'active', attn: false, avatar: '' }
-    ]; 
+    let systemUsers = []; 
+    let activeLeaderPTTs = new Set();
+    let remoteCandidatesQueue = {}; // CORREÇÃO BUG SEVERO: Fila para gerenciar candidatos ICE assíncronos
     
     let isDecentralized = false;
     let isSelfMuted = false;
@@ -283,9 +286,7 @@
         const file = e.target.files[0];
         if (file) {
             const reader = new FileReader();
-            reader.onload = function(event) {
-                localAvatarData = event.target.result;
-            };
+            reader.onload = function(event) { localAvatarData = event.target.result; };
             reader.readAsDataURL(file);
         }
     });
@@ -309,8 +310,7 @@
             role: isMafra ? 'imperador' : 'membro',
             division: isMafra ? 'roxo' : div, 
             avatar: localAvatarData,
-            status: 'active',
-            attn: false
+            status: 'active'
         };
 
         systemUsers.push(currentUser);
@@ -327,32 +327,46 @@
 
         const color = divisionColors[currentUser.division];
         document.getElementById('hud-name').innerText = currentUser.name;
-        document.getElementById('hud-role').innerText = `${currentUser.role.toUpperCase()} // DIV ${currentUser.division.toUpperCase()}`;
-        document.getElementById('hud-img').style.borderColor = color;
         if(currentUser.avatar) document.getElementById('hud-img').style.backgroundImage = `url(${currentUser.avatar})`;
+        document.getElementById('hud-img').style.borderColor = color;
+        document.getElementById('hud-controls-area').style.color = color;
 
-        const controlsArea = document.getElementById('hud-controls-area');
-        const statusText = document.getElementById('comms-status-text');
-        
-        controlsArea.style.color = color;
-
-        if (currentUser.role === 'imperador') {
-            statusText.innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">Monitoramento Global Ativado.</span>`;
-            document.getElementById('btn-ptt-mafra').style.display = 'inline-flex';
-            document.getElementById('btn-open-admin').style.display = 'inline-flex';
-            document.getElementById('btn-mute-self').style.display = 'none';
-        } else {
-            updateCommsStatusText();
-            document.getElementById('btn-mute-self').style.display = 'inline-flex';
-            document.getElementById('btn-mute-self').style.color = color;
-        }
-
+        updateHUDButtons();
+        updateCommsStatusText();
         renderTopology();
         renderAdminPanel();
     }
 
+    // CORREÇÃO: Painel de botões do HUD renderiza cirurgicamente dependendo do cargo atual atualizado
+    function updateHUDButtons() {
+        if(!currentUser) return;
+        const color = divisionColors[currentUser.division];
+        document.getElementById('hud-role').innerText = `${currentUser.role.toUpperCase()} // DIV ${currentUser.division.toUpperCase()}`;
+
+        document.getElementById('btn-ptt-mafra').style.display = 'none';
+        document.getElementById('btn-open-admin').style.display = 'none';
+        document.getElementById('btn-mute-self').style.display = 'none';
+        document.getElementById('btn-ptt-lideres').style.display = 'none';
+
+        if (currentUser.role === 'imperador') {
+            document.getElementById('btn-ptt-mafra').style.display = 'inline-flex';
+            document.getElementById('btn-open-admin').style.display = 'inline-flex';
+        } else if (currentUser.role === 'lider') {
+            document.getElementById('btn-mute-self').style.display = 'inline-flex';
+            document.getElementById('btn-mute-self').style.color = color;
+            document.getElementById('btn-ptt-lideres').style.display = 'inline-flex';
+        } else {
+            document.getElementById('btn-mute-self').style.display = 'inline-flex';
+            document.getElementById('btn-mute-self').style.color = color;
+        }
+    }
+
     function updateCommsStatusText() {
-        if(currentUser.role === 'imperador') return;
+        if(!currentUser) return;
+        if(currentUser.role === 'imperador') {
+            document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">Monitoramento Global Ativado.</span>`;
+            return;
+        }
         const color = divisionColors[currentUser.division];
         const statusText = document.getElementById('comms-status-text');
         
@@ -396,9 +410,7 @@
 
                 analyser.getByteFrequencyData(dataArray);
                 let soma = 0;
-                for (let i = 0; i < bufferLength; i++) {
-                    soma += dataArray[i];
-                }
+                for (let i = 0; i < bufferLength; i++) { soma += dataArray[i]; }
                 let mediaVolume = soma / bufferLength;
 
                 const vadStatus = document.getElementById('vad-status');
@@ -422,7 +434,7 @@
             }
             checarVolume();
         } catch (err) {
-            console.error("Permissão de microfone negada ou erro:", err);
+            console.error("Permissão de microfone negada:", err);
             document.getElementById('vad-status').innerText = 'ERROR';
         }
     }
@@ -435,8 +447,7 @@
         if(isSelfMuted) {
             btn.classList.add('active-state');
             btn.innerHTML = `<i class="fa-solid fa-microphone-slash"></i> <span>MUTADO</span>`;
-            btn.style.color = '#ff003c';
-            btn.style.borderColor = '#ff003c';
+            btn.style.color = '#ff003c'; btn.style.borderColor = '#ff003c';
             if(node) node.classList.add('self-muted');
         } else {
             btn.classList.remove('active-state');
@@ -447,125 +458,58 @@
         }
     }
 
-    // ADICIONADO: Função crucial para silenciar ou liberar fluxos de áudio WebRTC de acordo com a centralização
+    // CORREÇÃO MÁXIMA: Roteamento de áudio centralizado/descentralizado corrigido e integrado ao PTT Líderes
     function enforceAudioRouting() {
         systemUsers.forEach(u => {
             if (u.id === currentUser.id || !u.socketId) return;
             const audioEl = document.getElementById(`audio_${u.socketId}`);
             if (audioEl) {
+                if (u.status === 'banned' || u.status === 'kicked') {
+                    audioEl.muted = true;
+                    return;
+                }
+                
+                // Regra 1: Descentralizado libera geral
                 if (isDecentralized) {
-                    audioEl.muted = (u.status === 'banned');
-                } else {
-                    const sameDivision = (u.division === currentUser.division);
-                    const isImperador = (u.role === 'imperador' || currentUser.role === 'imperador');
-                    
-                    if (isImperador || sameDivision) {
-                        audioEl.muted = (u.status === 'banned');
-                    } else {
-                        audioEl.muted = true; 
+                    audioEl.muted = false;
+                    return;
+                }
+
+                // Regra 2: Imperador ouve todos e todos ouvem o Imperador
+                if (currentUser.role === 'imperador' || u.role === 'imperador') {
+                    audioEl.muted = false;
+                    return;
+                }
+
+                // Regra 3: Se o alvo ativou o PTT Líderes, os outros líderes ouvem mesmo de outra divisão
+                if (activeLeaderPTTs.has(u.socketId)) {
+                    if (currentUser.role === 'lider') {
+                        audioEl.muted = false;
+                        return;
                     }
+                }
+
+                // Regra 4: Mesma divisão se ouve naturalmente por VAD aberto
+                if (u.division === currentUser.division) {
+                    audioEl.muted = false;
+                } else {
+                    audioEl.muted = true; // Bloqueio do rádio centralizado
                 }
             }
         });
     }
 
-    // CORRIGIDO: Estrutura Topológica modificada para colocar a Divisão Púrpura na horizontal (4 slots à esquerda e 4 à direita)
-    function renderTopology() {
-        const root = document.getElementById('topology-root');
-        root.innerHTML = '';
-
-        const mafraUser = systemUsers.find(u => u.role === 'imperador');
-        const purpuraUsers = systemUsers.filter(u => u.division === 'purpura' && u.status !== 'kicked');
-        const remainingDivisions = ['vermelho', 'amarelo', 'cinza'];
-
-        let purpuraLeftHTML = '';
-        let purpuraRightHTML = '';
-
-        for (let i = 0; i < 4; i++) {
-            if (purpuraUsers[i]) {
-                purpuraLeftHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`;
-            } else {
-                purpuraLeftHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`;
-            }
-        }
-        for (let i = 4; i < 8; i++) {
-            if (purpuraUsers[i]) {
-                purpuraRightHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`;
-            } else {
-                purpuraRightHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`;
-            }
-        }
-
-        let html = `
-        <div style="display: flex; align-items: center; justify-content: center; gap: 40px; width: 100%; margin-bottom: 20px;">
-            <div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraLeftHTML}</div>
-            <div class="tier-mafra node-wrapper">
-        `;
-        
-        if (mafraUser) {
-            html += createNodeHTML(mafraUser);
-        } else {
-            html += `<div class="node ghost"><i class="fa-solid fa-crown"></i></div>`;
-            html += `<div class="node-name" style="color:#444; border:none; background:transparent;">TRONO VAZIO</div>`;
-        }
-        
-        html += `
-            </div>
-            <div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraRightHTML}</div>
-        </div>
-        <div class="connector-line" style="height: 30px; background: rgba(255,255,255,0.1);"></div>
-        <div class="connector-horizontal" style="width: 70%;"></div>
-        <div class="divisions-container">
-        `;
-
-        remainingDivisions.forEach(div => {
-            const divUsers = systemUsers.filter(u => u.division === div && u.status !== 'kicked');
-            const lider = divUsers.find(u => u.role === 'lider');
-            const membros = divUsers.filter(u => u.role === 'membro');
-
-            html += `<div class="division div-${div}" style="width: 33.33%;">`;
-            html += `<div class="connector-line" style="height: 30px;"></div>`;
-            
-            html += `<div class="tier-lider node-wrapper">`;
-            if (lider) html += createNodeHTML(lider);
-            else html += `<div class="node ghost"><i class="fa-solid fa-user-shield"></i></div><div class="node-name" style="background:transparent; border:none;">SEM LÍDER</div>`;
-            html += `</div><div class="connector-line" style="height: 30px;"></div><div class="tier-membros grid-membros">`;
-            
-            let colEsq = ''; let colDir = '';
-            membros.forEach((m, index) => {
-                const nodeHtml = `<div class="node-wrapper">${createNodeHTML(m)}</div>`;
-                if (index % 2 === 0) colEsq += nodeHtml; else colDir += nodeHtml;
-            });
-            if (membros.length === 0) {
-                colEsq = `<div class="node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div></div>`;
-                colDir = `<div class="node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div></div>`;
-            }
-
-            html += `<div class="coluna-esq">${colEsq}</div><div class="coluna-dir">${colDir}</div></div></div>`;
-        });
-
-        html += `</div>`;
-        root.innerHTML = html;
-        
-        if(isSelfMuted) {
-            const myNode = document.getElementById(`node_${currentUser.id}`);
-            if(myNode) myNode.classList.add('self-muted');
-        }
-
-        enforceAudioRouting();
+    // Controle do novo Botão PTT Líderes
+    function startPTTLideres() {
+        if(currentUser.role !== 'lider') return;
+        document.getElementById('btn-ptt-lideres').classList.add('active-state');
+        socket.emit('leader-ptt-start');
     }
 
-    function createNodeHTML(user) {
-        let extraClass = '';
-        if (user.attn) extraClass += ' muted-attn';
-        if (user.status === 'banned') extraClass += ' banned';
-
-        let bg = user.avatar ? `background-image: url('${user.avatar}');` : '';
-        let icon = !user.avatar ? '<i class="fa-solid fa-user"></i>' : '';
-        if(user.role === 'imperador' && !user.avatar) icon = '<i class="fa-solid fa-crown"></i>';
-        if(user.role === 'lider' && !user.avatar) icon = '<i class="fa-solid fa-user-shield"></i>';
-
-        return `<div class="node ${extraClass}" id="node_${user.id}" style="${bg}">${icon}</div><div class="node-name">${user.name}</div>`;
+    function stopPTTLideres() {
+        if(currentUser.role !== 'lider') return;
+        document.getElementById('btn-ptt-lideres').classList.remove('active-state');
+        socket.emit('leader-ptt-stop');
     }
 
     function startPTTMafra() {
@@ -579,8 +523,7 @@
     }
 
     function toggleAdminPanel() {
-        const panel = document.getElementById('admin-panel');
-        panel.classList.toggle('open');
+        document.getElementById('admin-panel').classList.toggle('open');
         renderAdminPanel();
     }
 
@@ -605,15 +548,95 @@
         }
     }
 
+    function renderTopology() {
+        const root = document.getElementById('topology-root');
+        root.innerHTML = '';
+
+        const mafraUser = systemUsers.find(u => u.role === 'imperador');
+        const purpuraUsers = systemUsers.filter(u => u.division === 'purpura' && u.status !== 'kicked');
+        const remainingDivisions = ['vermelho', 'amarelo', 'cinza'];
+
+        let purpuraLeftHTML = ''; let purpuraRightHTML = '';
+
+        for (let i = 0; i < 4; i++) {
+            if (purpuraUsers[i]) purpuraLeftHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`;
+            else purpuraLeftHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`;
+        }
+        for (let i = 4; i < 8; i++) {
+            if (purpuraUsers[i]) purpuraRightHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`;
+            else purpuraRightHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`;
+        }
+
+        let html = `
+        <div style="display: flex; align-items: center; justify-content: center; gap: 40px; width: 100%; margin-bottom: 20px;">
+            <div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraLeftHTML}</div>
+            <div class="tier-mafra node-wrapper">
+        `;
+        if (mafraUser) html += createNodeHTML(mafraUser);
+        else html += `<div class="node ghost"><i class="fa-solid fa-crown"></i></div><div class="node-name" style="color:#444; border:none; background:transparent;">TRONO VAZIO</div>`;
+        
+        html += `
+            </div>
+            <div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraRightHTML}</div>
+        </div>
+        <div class="connector-line" style="height: 30px; background: rgba(255,255,255,0.1);"></div>
+        <div class="connector-horizontal" style="width: 70%;"></div>
+        <div class="divisions-container">
+        `;
+
+        remainingDivisions.forEach(div => {
+            const divUsers = systemUsers.filter(u => u.division === div && u.status !== 'kicked');
+            const lider = divUsers.find(u => u.role === 'lider');
+            const membros = divUsers.filter(u => u.role === 'membro');
+
+            html += `<div class="division div-${div}" style="width: 33.33%;">`;
+            html += `<div class="connector-line" style="height: 30px;"></div>`;
+            html += `<div class="tier-lider node-wrapper">`;
+            if (lider) html += createNodeHTML(lider);
+            else html += `<div class="node ghost"><i class="fa-solid fa-user-shield"></i></div><div class="node-name" style="background:transparent; border:none;">SEM LÍDER</div>`;
+            html += `</div><div class="connector-line" style="height: 30px;"></div><div class="tier-membros grid-membros">`;
+            
+            let colEsq = ''; let colDir = '';
+            membros.forEach((m, index) => {
+                const nodeHtml = `<div class="node-wrapper">${createNodeHTML(m)}</div>`;
+                if (index % 2 === 0) colEsq += nodeHtml; else colDir += nodeHtml;
+            });
+            if (membros.length === 0) {
+                colEsq = `<div class="node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div></div>`;
+                colDir = `<div class="node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div></div>`;
+            }
+            html += `<div class="coluna-esq">${colEsq}</div><div class="coluna-dir">${colDir}</div></div></div>`;
+        });
+
+        html += `</div>`;
+        root.innerHTML = html;
+        
+        if(isSelfMuted) {
+            const myNode = document.getElementById(`node_${currentUser.id}`);
+            if(myNode) myNode.classList.add('self-muted');
+        }
+        enforceAudioRouting();
+    }
+
+    function createNodeHTML(user) {
+        let extraClass = '';
+        if (user.status === 'banned') extraClass += ' banned';
+
+        let bg = user.avatar ? `background-image: url('${user.avatar}');` : '';
+        let icon = !user.avatar ? '<i class="fa-solid fa-user"></i>' : '';
+        if(user.role === 'imperador' && !user.avatar) icon = '<i class="fa-solid fa-crown"></i>';
+        if(user.role === 'lider' && !user.avatar) icon = '<i class="fa-solid fa-user-shield"></i>';
+
+        return `<div class="node ${extraClass}" id="node_${user.id}" style="${bg}">${icon}</div><div class="node-name">${user.name}</div>`;
+    }
+
     function renderAdminPanel() {
         if(currentUser?.role !== 'imperador') return;
-        
         const list = document.getElementById('admin-user-list');
         list.innerHTML = '';
 
         systemUsers.forEach(u => {
             if(u.role === 'imperador') return; 
-            
             const isLider = u.role === 'lider';
             const isBanned = u.status === 'banned';
 
@@ -624,12 +647,8 @@
                         <span style="font-size:0.7rem; color:#888;">${u.role.toUpperCase()}</span>
                     </div>
                     <div class="user-actions">
-                        <button class="action-btn promote" onclick="admAction('${u.id}', 'role')">
-                            ${isLider ? 'Rebaixar' : 'Promover a Líder'}
-                        </button>
-                        <button class="action-btn ban" onclick="admAction('${u.id}', 'ban')">
-                            ${isBanned ? 'Remover Ban' : 'Banir'}
-                        </button>
+                        <button class="action-btn promote" onclick="admAction('${u.id}', 'role')">${isLider ? 'Rebaixar' : 'Promover a Líder'}</button>
+                        <button class="action-btn ban" onclick="admAction('${u.id}', 'ban')">${isBanned ? 'Remover Ban' : 'Banir'}</button>
                         <button class="action-btn" onclick="admAction('${u.id}', 'kick')">Expulsar</button>
                     </div>
                 </div>
@@ -637,32 +656,45 @@
         });
     }
 
-    function admAction(id, action) {
+    // CORREÇÃO UNIFICADA: Atualiza o cargo dinamicamente sem bumerangue e sem bugs visuais
+    function admAction(id, action, fromServer) {
         const user = systemUsers.find(u => u.id === id);
         if(!user) return;
 
         if (action === 'role') {
             if (user.role === 'membro') {
                 let liderAtual = systemUsers.find(u => u.division === user.division && u.role === 'lider');
-                if (liderAtual) liderAtual.role = 'membro';
+                if (liderAtual) {
+                    liderAtual.role = 'membro';
+                    if (currentUser && liderAtual.id === currentUser.id) currentUser.role = 'membro';
+                }
                 user.role = 'lider';
             } else {
                 user.role = 'membro';
             }
+            if (currentUser && user.id === currentUser.id) currentUser.role = user.role;
         } else if (action === 'ban') {
             user.status = user.status === 'banned' ? 'active' : 'banned';
+            if (currentUser && user.id === currentUser.id) currentUser.status = user.status;
         } else if (action === 'kick') {
             user.status = 'kicked';
+            if (currentUser && user.id === currentUser.id) {
+                alert("Você foi removido da rede pelo Comando Central.");
+                location.reload();
+            }
         }
         
+        updateHUDButtons();
+        updateCommsStatusText();
         renderAdminPanel();
         renderTopology();
 
-        if (arguments[2] !== 'fromServer') {
+        if (fromServer !== 'fromServer') {
             socket.emit('admin-action-execute', { targetId: id, action: action });
         }
     }
 
+    // RECEPÇÃO SINALIZAÇÃO DO SERVIDOR
     socket.on('network-users', (serverUsers, serverDecentralized) => {
         serverUsers.forEach(sUser => {
             if (sUser.id !== currentUser.id) {
@@ -671,11 +703,7 @@
                 else Object.assign(exists, sUser);
             }
         });
-        
-        if (serverDecentralized !== isDecentralized) {
-            toggleDecentralize('fromServer');
-        }
-        
+        if (serverDecentralized !== isDecentralized) toggleDecentralize('fromServer');
         renderTopology();
         renderAdminPanel();
 
@@ -690,22 +718,19 @@
         let exists = systemUsers.find(u => u.id === newUser.id);
         if (!exists) systemUsers.push(newUser);
         else Object.assign(exists, newUser);
-        
         renderTopology();
         renderAdminPanel();
     });
 
     socket.on('user-left', (socketId) => {
-        let userLeft = systemUsers.find(u => u.socketId === socketId);
-        if (userLeft) {
-            systemUsers = systemUsers.filter(u => u.socketId !== socketId);
-        }
+        systemUsers = systemUsers.filter(u => u.socketId !== socketId);
         if (peerConnections[socketId]) {
             peerConnections[socketId].close();
             delete peerConnections[socketId];
         }
         const audioEl = document.getElementById(`audio_${socketId}`);
         if(audioEl) audioEl.remove();
+        delete remoteCandidatesQueue[socketId];
 
         renderTopology();
         renderAdminPanel();
@@ -722,20 +747,38 @@
         }
     });
 
+    // Trata ativação do PTT Líderes vindo do servidor
+    socket.on('leader-ptt-activated', (socketId) => {
+        activeLeaderPTTs.add(socketId);
+        let targetUser = systemUsers.find(u => u.socketId === socketId);
+        if (targetUser) {
+            const node = document.getElementById(`node_${targetUser.id}`);
+            if (node) node.style.boxShadow = '0 0 25px var(--success)';
+        }
+        enforceAudioRouting();
+    });
+
+    socket.on('leader-ptt-deactivated', (socketId) => {
+        activeLeaderPTTs.delete(socketId);
+        let targetUser = systemUsers.find(u => u.socketId === socketId);
+        if (targetUser) {
+            const node = document.getElementById(`node_${targetUser.id}`);
+            if (node) node.style.boxShadow = '';
+        }
+        enforceAudioRouting();
+    });
+
     socket.on('admin-action-broadcast', ({ targetId, action }) => {
         admAction(targetId, action, 'fromServer');
     });
 
     socket.on('decentralize-network-broadcast', (status) => {
-        if (isDecentralized !== status) {
-            toggleDecentralize('fromServer');
-        }
+        if (isDecentralized !== status) toggleDecentralize('fromServer');
     });
 
+    // CORREÇÃO SEVERA DO WEBRTC: Injeção com proteção de fila assíncrona
     socket.on('webrtc-signal', async ({ from, signal }) => {
-        if (!peerConnections[from]) {
-            initiatePeerConnection(from, false);
-        }
+        if (!peerConnections[from]) initiatePeerConnection(from, false);
         const pc = peerConnections[from];
         try {
             if (signal.sdp) {
@@ -745,11 +788,25 @@
                     await pc.setLocalDescription(answer);
                     socket.emit('webrtc-signal', { to: from, signal: { sdp: pc.localDescription } });
                 }
+                
+                // Processa candidatos que aguardavam a descrição remota ser concluída
+                if (remoteCandidatesQueue[from]) {
+                    while (remoteCandidatesQueue[from].length > 0) {
+                        const candidate = remoteCandidatesQueue[from].shift();
+                        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                    }
+                }
             } else if (signal.candidate) {
-                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                // Se a descrição remota já estiver pronta, adiciona imediatamente, se não, joga na fila
+                if (pc.remoteDescription && pc.remoteDescription.type) {
+                    await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                } else {
+                    if (!remoteCandidatesQueue[from]) remoteCandidatesQueue[from] = [];
+                    remoteCandidatesQueue[from].push(signal.candidate);
+                }
             }
         } catch (e) {
-            console.error("Erro na negociação de sinalização WebRTC:", e);
+            console.error("Erro na sinalização:", e);
         }
     });
 
@@ -779,6 +836,7 @@
                 document.body.appendChild(remoteAudio);
             }
             remoteAudio.srcObject = event.streams[0];
+            remoteAudio.play().catch(e => console.log("Aguardando interação."));
             enforceAudioRouting(); 
         };
 
@@ -789,7 +847,7 @@
                     await pc.setLocalDescription(offer);
                     socket.emit('webrtc-signal', { to: targetSocketId, signal: { sdp: pc.localDescription } });
                 } catch (e) {
-                    console.error("Erro na criação de oferta de conexão:", e);
+                    console.error("Erro na oferta:", e);
                 }
             };
         }
