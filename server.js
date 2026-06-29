@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,6 +12,7 @@ app.use(express.static(__dirname));
 
 let connectedUsers = [];
 let isDecentralizedGlobal = false;
+let isMafraOverrideActive = false; // Novo estado global do Imperador
 
 io.on('connection', (socket) => {
     console.log(`[M.G.I NEXUS] Agente conectado ao terminal: ${socket.id}`);
@@ -22,7 +22,11 @@ io.on('connection', (socket) => {
         connectedUsers = connectedUsers.filter(u => u.id !== userData.id);
         connectedUsers.push(userData);
 
-        socket.emit('network-users', connectedUsers, isDecentralizedGlobal);
+        // Envia o estado atual da rede para quem acabou de entrar
+        socket.emit('network-users', connectedUsers, {
+            decentralized: isDecentralizedGlobal,
+            override: isMafraOverrideActive
+        });
         socket.broadcast.emit('user-joined', userData);
     });
 
@@ -34,16 +38,22 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('user-voice-state', { socketId: socket.id, isSpeaking });
     });
 
-    // EVENTOS DE PTT LÍDERES SINCROINIZADOS
-    socket.on('leader-ptt-start', () => {
-        socket.broadcast.emit('leader-ptt-activated', socket.id);
+    // PTT LÍDERES
+    socket.on('leader-ptt-start', () => socket.broadcast.emit('leader-ptt-activated', socket.id));
+    socket.on('leader-ptt-stop', () => socket.broadcast.emit('leader-ptt-deactivated', socket.id));
+
+    // OVERRIDE MAFRAINF (NOVO)
+    socket.on('mafra-override-start', () => {
+        isMafraOverrideActive = true;
+        socket.broadcast.emit('mafra-override-activated');
+    });
+    
+    socket.on('mafra-override-stop', () => {
+        isMafraOverrideActive = false;
+        socket.broadcast.emit('mafra-override-deactivated');
     });
 
-    socket.on('leader-ptt-stop', () => {
-        socket.broadcast.emit('leader-ptt-deactivated', socket.id);
-    });
-
-    // CONTROLE ADMINISTRATIVO CORRIGIDO
+    // CONTROLE ADMINISTRATIVO
     socket.on('admin-action-execute', ({ targetId, action }) => {
         const user = connectedUsers.find(u => u.id === targetId);
         if (user) {
@@ -58,14 +68,11 @@ io.on('connection', (socket) => {
                 socket.broadcast.emit('admin-action-broadcast', { targetId, action });
             } else if (action === 'ban') {
                 user.status = user.status === 'banned' ? 'active' : 'banned';
-                socket.broadcast.emit('admin-action-broadcast', { targetId, action });
-                // Notifica o próprio usuário banido para atualizar o estado local dele instantaneamente
-                io.to(user.socketId).emit('admin-action-broadcast', { targetId, action });
+                io.emit('admin-action-broadcast', { targetId, action });
             } else if (action === 'kick') {
                 user.status = 'kicked';
-                socket.broadcast.emit('admin-action-broadcast', { targetId, action });
+                io.emit('admin-action-broadcast', { targetId, action });
                 
-                // Expulsão física e desconexão imediata do Socket no servidor
                 const targetSocket = io.sockets.sockets.get(user.socketId);
                 if (targetSocket) {
                     targetSocket.emit('kicked-from-network');
@@ -76,16 +83,13 @@ io.on('connection', (socket) => {
         }
     });
 
+    // DESCENTRALIZAÇÃO DA REDE (CORRIGIDO)
     socket.on('decentralize-network-execute', (status) => {
         isDecentralizedGlobal = status;
         socket.broadcast.emit('decentralize-network-broadcast', status);
     });
 
     socket.on('disconnect', () => {
-        const disconnectedUser = connectedUsers.find(u => u.socketId === socket.id);
-        if (disconnectedUser) {
-            console.log(`[M.G.I NEXUS] Agente desconectado: ${disconnectedUser.name}`);
-        }
         connectedUsers = connectedUsers.filter(u => u.socketId !== socket.id);
         io.emit('user-left', socket.id);
     });
