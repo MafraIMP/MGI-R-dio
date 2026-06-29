@@ -25,7 +25,7 @@
             --font-display: 'Rajdhani', sans-serif;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         
         body {
             background-color: var(--bg-deep);
@@ -115,7 +115,8 @@
         .tier-membros .node { width: 60px; height: 60px; }
 
         .divisions-container { display: flex; justify-content: space-around; width: 100%; margin-top: -1px; }
-        .division { display: flex; flex-direction: column; align-items: center; width: 25%; }
+        .division { display: flex; flex-direction: column; align-items: center; width: 25%; cursor: pointer; padding: 15px; border: 1px solid transparent; border-radius: 6px; transition: all 0.3s; }
+        .division.focused-target { border-color: var(--mafra); background: rgba(176, 38, 255, 0.05); box-shadow: 0 0 25px rgba(176, 38, 255, 0.15); }
         
         .div-vermelho { color: var(--vermelho); } .div-vermelho .connector-line { background: rgba(255,26,26,0.3); }
         .div-amarelo { color: var(--amarelo); } .div-amarelo .connector-line { background: rgba(255,204,0,0.3); }
@@ -177,6 +178,23 @@
         .admin-footer { padding: 20px; border-top: 1px solid #333; }
         
         .global-override-active { background: rgba(176,38,255,0.05); border: 8px solid var(--mafra); position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; display: none; }
+
+        /* PAINEL DE CHAT TEXTO */
+        #chat-panel {
+            position: fixed; left: -400px; top: 0; width: 400px; height: 100%;
+            background: var(--panel-bg); border-right: 1px solid var(--mafra);
+            z-index: 2000; transition: left 0.3s ease; display: flex; flex-direction: column;
+            box-shadow: 10px 0 30px rgba(0,0,0,0.8);
+        }
+        #chat-panel.open { left: 0; }
+        .chat-header { padding: 20px; background: rgba(176,38,255,0.1); border-bottom: 1px solid var(--mafra); display: flex; justify-content: space-between; align-items: center; }
+        .chat-header h2 { color: var(--mafra); font-family: var(--font-ui); font-size: 1.1rem; }
+        .chat-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; font-family: var(--font-ui); font-size: 0.85rem; }
+        .chat-msg { background: rgba(255,255,255,0.03); border-left: 3px solid #444; padding: 8px 12px; border-radius: 0 4px 4px 0; }
+        .chat-msg-meta { font-weight: bold; margin-bottom: 3px; font-size: 0.75rem; }
+        .chat-footer { padding: 15px; border-top: 1px solid #222; display: flex; gap: 10px; }
+        .chat-input { flex: 1; background: #000; border: 1px solid #333; padding: 10px; color: #fff; font-family: var(--font-ui); outline: none; }
+        .chat-input:focus { border-color: var(--mafra); }
     </style>
 </head>
 <body>
@@ -212,6 +230,19 @@
         </div>
     </div>
 
+    <!-- ABAS LATERAIS -->
+    <div id="chat-panel">
+        <div class="chat-header">
+            <h2><i class="fa-solid fa-comments"></i> COMUNICAÇÃO TEXTUAL (MUTADOS/GERAL)</h2>
+            <i class="fa-solid fa-xmark close-admin" onclick="toggleChatPanel()"></i>
+        </div>
+        <div class="chat-body" id="chat-messages-container"></div>
+        <div class="chat-footer">
+            <input type="text" class="chat-input" id="chat-input-field" placeholder="Escreva uma mensagem..." onkeydown="if(event.key === 'Enter') sendTextMessage()" />
+            <button class="btn" style="color: var(--mafra);" onclick="sendTextMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
     <div id="admin-panel">
         <div class="admin-header">
             <h2><i class="fa-solid fa-chess-king"></i> COMANDO CENTRAL</h2>
@@ -242,6 +273,10 @@
             <div class="comms-status" id="comms-status-text">STATUS DA COMUNICAÇÃO</div>
             
             <div style="display: flex; gap: 15px;">
+                <button class="btn" id="btn-toggle-chat" onclick="toggleChatPanel()" style="color: var(--cinza);">
+                    <i class="fa-solid fa-comments"></i> <span>CHAT TEXTO</span>
+                </button>
+
                 <button class="btn" id="btn-mute-self" onclick="toggleSelfMute()" style="display:none;">
                     <i class="fa-solid fa-microphone"></i> <span>SILENCIAR</span>
                 </button>
@@ -266,6 +301,22 @@
     </div>
 
 <script>
+    // DO NOT INSPECT SECURITY
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', e => {
+        if (e.keyCode === 123 || 
+            (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || 
+            (e.ctrlKey && e.keyCode === 85)) {
+            e.preventDefault();
+            return false;
+        }
+    });
+
+    // BAN CHECKER AT LOAD
+    if (localStorage.getItem('mgi_banned_state') === 'true') {
+        renderBannedScreen();
+    }
+
     let currentUser = null;
     let systemUsers = []; 
     let activeLeaderPTTs = new Set();
@@ -274,6 +325,7 @@
     let isDecentralized = false;
     let isSelfMuted = false;
     let isMafraOverrideActive = false;
+    let activeMafraTargetDivision = null; 
     let localAvatarData = '';
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
@@ -286,7 +338,7 @@
             throw new Error("Socket.io não encontrado na rede.");
         }
     } catch(e) {
-        console.warn("[SISTEMA MGI]: O Servidor não foi detectado. Rodando HUD em modo de simulação.");
+        console.warn("[SISTEMA MGI]: Servidor não detectado. Simulando rede local.");
         socket = { emit: function(){}, on: function(){} };
     }
 
@@ -294,6 +346,63 @@
     let peerConnections = {};
     let lastSpeakingState = false;
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    // AUDIO CHIME GENERATOR
+    function playSystemChime(type) {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            if (type === 'entry') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                osc.start(); osc.stop(ctx.currentTime + 0.3);
+            } else if (type === 'exit') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+                osc.frequency.setValueAtTime(440, ctx.currentTime + 0.1); // A4
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                osc.start(); osc.stop(ctx.currentTime + 0.3);
+            }
+        } catch(e){}
+    }
+
+    // MALE ROBOT TTS READER
+    function speakWithRobotVoice(text) {
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        const voices = window.speechSynthesis.getVoices();
+        
+        let maleVoice = voices.find(v => v.lang.includes('pt') && (v.name.toLowerCase().includes('daniel') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('male')));
+        if (!maleVoice) maleVoice = voices.find(v => v.lang.includes('pt'));
+        
+        if (maleVoice) utterance.voice = maleVoice;
+        utterance.pitch = 0.75; // Tom mais grave/robótico
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // CHECK FOR CLONE PROFILE LOCK
+    window.addEventListener('DOMContentLoaded', () => {
+        const savedProfile = localStorage.getItem('mgi_locked_account');
+        if (savedProfile) {
+            const profile = JSON.parse(savedProfile);
+            document.getElementById('log-user').value = profile.name;
+            document.getElementById('log-user').disabled = true;
+            document.getElementById('log-div').value = profile.division;
+            document.getElementById('log-div').disabled = true;
+        }
+    });
 
     document.getElementById('log-avatar').addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -323,15 +432,19 @@
                 const tempCtx = new AudioContext();
                 await tempCtx.resume();
             }
-        } catch(e) { /* ignora se não suportado */ }
+        } catch(e) { }
 
         const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
         
-        // BUG 3 FIX: O Mafra agora entra formalmente como Braço Púrpura no sistema.
         currentUser = {
             id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
             division: isMafra ? 'purpura' : div, avatar: localAvatarData, status: 'active'
         };
+
+        // LOCK THE BROWSER PORT TO THIS INSTANCE FOREVER (ANTI-300x ACCOUNTS)
+        if (!localStorage.getItem('mgi_locked_account')) {
+            localStorage.setItem('mgi_locked_account', JSON.stringify({ name: user, division: currentUser.division }));
+        }
 
         await iniciarCapturaMicrofone();
         iniciarInterfaceHUD();
@@ -378,7 +491,9 @@
     function updateCommsStatusText() {
         if(!currentUser) return;
         if(currentUser.role === 'imperador') {
-            document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">Monitoramento Global Ativado.</span>`;
+            let desc = "Monitoramento Global Ativado.";
+            if (activeMafraTargetDivision) desc = `FOCADO EXCLUSIVAMENTE NA DIVISÃO ${activeMafraTargetDivision.toUpperCase()}`;
+            document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">${desc}</span>`;
             return;
         }
         if(currentUser.status === 'banned') {
@@ -390,6 +505,8 @@
         
         if (isDecentralized) {
             statusText.innerHTML = `VAD ATIVO <br> <span style="color:#666">Rede Descentralizada:</span> <span class="comms-highlight" style="color:var(--success)">CANAL GLOBAL ABERTO</span>`;
+        } else if (isMafraOverrideActive) {
+            statusText.innerHTML = `<span style="color:var(--mafra)">OVERRIDE TRANSMISSÃO</span> <br> <span style="color:#aaa">Escutando Pronunciamento Imperial</span>`;
         } else {
             statusText.innerHTML = `VAD ATIVO <br> <span style="color:#666">Transmitindo para:</span> <span class="comms-highlight" style="color:${color}">ESQUADRÃO ${currentUser.division.toUpperCase()}</span>`;
         }
@@ -398,7 +515,7 @@
     async function iniciarCapturaMicrofone() {
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("Microfone bloqueado pela segurança do navegador (necessita HTTPS/Localhost).");
+                throw new Error("Acesso negado às dependências de áudio do navegador.");
             }
             
             const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -460,7 +577,7 @@
             }
             checarVolume();
         } catch (err) {
-            console.warn("[SISTEMA MGI] Falha ou recusa na conexão do microfone:", err);
+            console.warn("[SISTEMA MGI] Falha física na captura do dispositivo:", err);
             const vadEl = document.getElementById('vad-status');
             if (vadEl) { vadEl.innerText = 'SEM MIC'; vadEl.style.color = 'orange'; }
         }
@@ -485,7 +602,22 @@
         }
     }
 
-    // A MATRIZ DE ROTEAMENTO (REVISADA)
+    // EXCLUSIVE PODER DE MAFRA SELECTOR
+    function mafraSelectDivision(targetDiv) {
+        if (!currentUser || currentUser.role !== 'imperador') return;
+        
+        if (activeMafraTargetDivision === targetDiv) {
+            activeMafraTargetDivision = null; // Desliga o foco
+        } else {
+            activeMafraTargetDivision = targetDiv; // Foca na divisão clicada
+        }
+        
+        socket.emit('mafra-target-division-change', activeMafraTargetDivision);
+        updateCommsStatusText();
+        renderTopology();
+    }
+
+    // REVISÃO RIGOROSA DA MATRIZ DE ÁUDIO
     function enforceAudioRouting() {
         systemUsers.forEach(u => {
             if (u.id === currentUser.id || !u.socketId) return;
@@ -502,37 +634,48 @@
 
                 let canHear = false;
 
-                // REGRAS BASE
+                // 1. REGRAS DE OVERRIDE DO IMPERADOR (SOBREPÕE TUDO)
+                if (isMafraOverrideActive) {
+                    if (currentUser.role === 'lider') {
+                        // SOMENTE os líderes escutam o Mafra, e ficam surdos para o resto do mundo
+                        canHear = (u.role === 'imperador');
+                    } else {
+                        // Membros e o próprio Mafra não escutam os membros comuns (audição cortada)
+                        canHear = false;
+                    }
+                    audioEl.muted = !canHear;
+                    return;
+                }
+
+                // 2. REGRA DE PODERES DE DIVISÃO DIRETA DO MAFRA
+                if (activeMafraTargetDivision) {
+                    if (currentUser.role === 'imperador') {
+                        // Mafra focado escuta apenas a divisão selecionada
+                        canHear = (u.division === activeMafraTargetDivision);
+                    } else if (u.role === 'imperador') {
+                        // Integrantes da divisão alvo escutam o Mafra focado
+                        canHear = (currentUser.division === activeMafraTargetDivision);
+                    } else {
+                        // Comunicação local interna contínua normal para o resto
+                        canHear = (u.division === currentUser.division);
+                    }
+                    audioEl.muted = !canHear;
+                    return;
+                }
+
+                // 3. MATRIZ DE ROTEAMENTO EM ESTADO OPERACIONAL NORMAL
                 if (currentUser.role === 'imperador') {
-                    // Mafra ouve a própria base (Braço Púrpura)
                     if (u.division === 'purpura') canHear = true;
-                    // Mafra ouve Líderes quando ativam PTT
                     if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
                 } 
                 else if (currentUser.role === 'lider') {
-                    // Líder ouve a própria base
                     if (u.division === currentUser.division) canHear = true;
-                    // BUG 1 FIX: Líder ouve outros líderes no PTT
                     if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
-                    // Líder ouve o Mafra
                     if (u.role === 'imperador') canHear = true;
                 } 
                 else if (currentUser.role === 'membro') {
-                    // Membro ouve a própria divisão
                     if (u.division === currentUser.division) canHear = true;
-                    // BUG 3 FIX: Membro Púrpura ouve o Mafra
                     if (currentUser.division === 'purpura' && u.role === 'imperador') canHear = true;
-                }
-
-                // BUG 2 FIX: O EFEITO OVERRIDE
-                if (isMafraOverrideActive) {
-                    if (currentUser.role === 'lider') {
-                        // Líderes ficam surdos para a base e outros líderes, escutando SÓ o Mafra
-                        canHear = (u.role === 'imperador');
-                    } else if (currentUser.role === 'membro') {
-                        // Membros ficam surdos para a base/líder, escutando SÓ o Mafra
-                        canHear = (u.role === 'imperador');
-                    }
                 }
 
                 audioEl.muted = !canHear;
@@ -573,6 +716,34 @@
         renderAdminPanel(); 
     }
 
+    function toggleChatPanel() {
+        document.getElementById('chat-panel').classList.toggle('open');
+    }
+
+    function sendTextMessage() {
+        const input = document.getElementById('chat-input-field');
+        const msg = input.value.trim();
+        if(!msg || !currentUser) return;
+        
+        socket.emit('muted-chat-msg-send', {
+            senderName: currentUser.name,
+            senderDivision: currentUser.division,
+            text: msg
+        });
+        input.value = '';
+    }
+
+    function renderBannedScreen() {
+        if(localStream) { localStream.getTracks().forEach(track => track.stop()); } 
+        document.body.innerHTML = `
+            <div style="background-color: #0b0103; color: var(--danger); display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; width: 100vw; font-family: 'Space Mono', monospace; font-size: 2rem; text-transform: uppercase; letter-spacing: 2px; border: 5px solid var(--danger);">
+                <i class="fa-solid fa-ban" style="font-size: 5rem; margin-bottom: 20px; text-shadow: 0 0 20px var(--danger);"></i>
+                <div>ACESSO CORTADO // DISPOSITIVO BANIDO</div>
+                <div style="font-size: 0.9rem; color: #555; margin-top: 15px; letter-spacing: 1px;">Sua chave de autorização no Nexus foi permanentemente revogada.</div>
+            </div>
+        `;
+    }
+
     function toggleDecentralize(fromServer, forceStatus) {
         if (fromServer === 'fromServer' && forceStatus !== undefined) {
             isDecentralized = forceStatus;
@@ -609,7 +780,9 @@
         for (let i = 0; i < 4; i++) { if (purpuraUsers[i]) purpuraLeftHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`; else purpuraLeftHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`; }
         for (let i = 4; i < 8; i++) { if (purpuraUsers[i]) purpuraRightHTML += `<div class="tier-membros node-wrapper">${createNodeHTML(purpuraUsers[i])}</div>`; else purpuraRightHTML += `<div class="tier-membros node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div><div class="node-name" style="background:transparent; border:none;">VAZIO</div></div>`; }
 
-        let html = `<div style="display: flex; align-items: center; justify-content: center; gap: 40px; width: 100%; margin-bottom: 20px;"><div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraLeftHTML}</div><div class="tier-mafra node-wrapper">`;
+        let focusedPurpura = (activeMafraTargetDivision === 'purpura') ? 'focused-target' : '';
+
+        let html = `<div class="division ${focusedPurpura}" onclick="mafraSelectDivision('purpura')" style="display: flex; align-items: center; justify-content: center; gap: 40px; width: 100%; margin-bottom: 20px;"><div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraLeftHTML}</div><div class="tier-mafra node-wrapper">`;
         if (mafraUser) html += createNodeHTML(mafraUser); else html += `<div class="node ghost"><i class="fa-solid fa-crown"></i></div><div class="node-name" style="color:#444; border:none; background:transparent;">TRONO VAZIO</div>`;
         html += `</div><div class="div-purpura" style="display: flex; gap: 20px; align-items: center;">${purpuraRightHTML}</div></div><div class="connector-line" style="height: 30px; background: rgba(255,255,255,0.1);"></div><div class="connector-horizontal" style="width: 70%;"></div><div class="divisions-container">`;
 
@@ -617,7 +790,9 @@
             const divUsers = systemUsers.filter(u => u.division === div && u.status !== 'kicked');
             const lider = divUsers.find(u => u.role === 'lider');
             const membros = divUsers.filter(u => u.role === 'membro');
-            html += `<div class="division div-${div}" style="width: 33.33%;"><div class="connector-line" style="height: 30px;"></div><div class="tier-lider node-wrapper">`;
+            let focusedClass = (activeMafraTargetDivision === div) ? 'focused-target' : '';
+
+            html += `<div class="division div-${div} ${focusedClass}" onclick="mafraSelectDivision('${div}')" style="width: 33.33%;"><div class="connector-line" style="height: 30px;"></div><div class="tier-lider node-wrapper">`;
             if (lider) html += createNodeHTML(lider); else html += `<div class="node ghost"><i class="fa-solid fa-user-shield"></i></div><div class="node-name" style="background:transparent; border:none;">SEM LÍDER</div>`;
             html += `</div><div class="connector-line" style="height: 30px;"></div><div class="tier-membros grid-membros">`;
             
@@ -677,7 +852,9 @@
             if (currentUser && user.id === currentUser.id) currentUser.role = user.role;
         } else if (action === 'ban') {
             user.status = user.status === 'banned' ? 'active' : 'banned';
-            if (currentUser && user.id === currentUser.id) currentUser.status = user.status;
+            if (currentUser && user.id === currentUser.id) {
+                currentUser.status = user.status;
+            }
         } else if (action === 'kick') { user.status = 'kicked'; }
         
         updateHUDButtons(); updateCommsStatusText(); renderAdminPanel(); renderTopology();
@@ -694,6 +871,32 @@
         setTimeout(() => location.reload(), 3500);
     });
 
+    socket.on('banned-from-network-lock', () => {
+        localStorage.setItem('mgi_banned_state', 'true');
+        renderBannedScreen();
+    });
+
+    socket.on('muted-chat-msg-broadcast', (data) => {
+        const container = document.getElementById('chat-messages-container');
+        const color = divisionColors[data.senderDivision] || '#fff';
+        container.innerHTML += `
+            <div class="chat-msg">
+                <div class="chat-msg-meta" style="color: ${color}">${data.senderName} [${data.senderDivision.toUpperCase()}]:</div>
+                <div>${data.text}</div>
+            </div>
+        `;
+        container.scrollTop = container.scrollHeight;
+        
+        // Ativa fala robótica masculina instantânea
+        speakWithRobotVoice(`${data.senderName} disse: ${data.text}`);
+    });
+
+    socket.on('mafra-target-division-broadcast', (division) => {
+        activeMafraTargetDivision = division;
+        updateCommsStatusText();
+        renderTopology();
+    });
+
     socket.on('network-users', (serverUsers, serverState) => {
         serverUsers.forEach(sUser => {
             if (sUser.id !== currentUser.id) {
@@ -704,6 +907,7 @@
         });
         if (serverState.decentralized !== isDecentralized) toggleDecentralize('fromServer', serverState.decentralized);
         if (serverState.override !== isMafraOverrideActive) { isMafraOverrideActive = serverState.override; enforceAudioRouting(); }
+        activeMafraTargetDivision = serverState.mafraTargetDivision || null;
         renderTopology(); renderAdminPanel();
 
         serverUsers.forEach(sUser => {
@@ -714,6 +918,7 @@
     socket.on('user-joined', (newUser) => { 
         let exists = systemUsers.find(u => u.id === newUser.id);
         if (!exists) systemUsers.push(newUser); else Object.assign(exists, newUser);
+        playSystemChime('entry'); // Entrada chime
         renderTopology(); renderAdminPanel();
     });
 
@@ -722,6 +927,7 @@
         if (peerConnections[socketId]) { peerConnections[socketId].close(); delete peerConnections[socketId]; }
         const audioEl = document.getElementById(`audio_${socketId}`); if(audioEl) audioEl.remove();
         delete remoteCandidatesQueue[socketId];
+        playSystemChime('exit'); // Saída chime
         renderTopology(); renderAdminPanel();
     });
 
@@ -743,8 +949,8 @@
         enforceAudioRouting(); 
     });
 
-    socket.on('mafra-override-activated', () => { isMafraOverrideActive = true; enforceAudioRouting(); });
-    socket.on('mafra-override-deactivated', () => { isMafraOverrideActive = false; enforceAudioRouting(); });
+    socket.on('mafra-override-activated', () => { isMafraOverrideActive = true; enforceAudioRouting(); updateCommsStatusText(); });
+    socket.on('mafra-override-deactivated', () => { isMafraOverrideActive = false; enforceAudioRouting(); updateCommsStatusText(); });
 
     socket.on('admin-action-broadcast', ({ targetId, action }) => { admAction(targetId, action, 'fromServer'); });
     socket.on('decentralize-network-broadcast', (status) => { if (isDecentralized !== status) toggleDecentralize('fromServer', status); });
@@ -769,7 +975,7 @@
                 if (pc.remoteDescription && pc.remoteDescription.type) { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } 
                 else { if (!remoteCandidatesQueue[from]) remoteCandidatesQueue[from] = []; remoteCandidatesQueue[from].push(signal.candidate); }
             }
-        } catch (e) { console.error("Erro na sinalização:", e); }
+        } catch (e) { console.error("Erro na sinalização WebRTC:", e); }
     });
 
     function initiatePeerConnection(targetSocketId, isOfferor) {
@@ -800,7 +1006,7 @@
                 let playPromise = remoteAudio.play();
                 if (playPromise !== undefined) {
                     playPromise.catch(e => {
-                        console.warn("[MGI] Autoplay negado pelo sistema, mas o override forçará a conexão.");
+                        console.warn("[MGI] Esperando interação para iniciar trilha de áudio externa.");
                     });
                 }
             }
@@ -815,7 +1021,7 @@
                     await pc.setLocalDescription(offer);
                     socket.emit('webrtc-signal', { to: targetSocketId, signal: { sdp: pc.localDescription } });
                 } catch (e) {
-                    console.error("Erro na oferta:", e);
+                    console.error("Erro na negociação de canais:", e);
                 }
             };
         }

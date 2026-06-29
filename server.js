@@ -12,7 +12,8 @@ app.use(express.static(__dirname));
 
 let connectedUsers = [];
 let isDecentralizedGlobal = false;
-let isMafraOverrideActive = false; // Novo estado global do Imperador
+let isMafraOverrideActive = false; 
+let currentMafraTargetDivision = null;
 
 io.on('connection', (socket) => {
     console.log(`[M.G.I NEXUS] Agente conectado ao terminal: ${socket.id}`);
@@ -25,7 +26,8 @@ io.on('connection', (socket) => {
         // Envia o estado atual da rede para quem acabou de entrar
         socket.emit('network-users', connectedUsers, {
             decentralized: isDecentralizedGlobal,
-            override: isMafraOverrideActive
+            override: isMafraOverrideActive,
+            mafraTargetDivision: currentMafraTargetDivision
         });
         socket.broadcast.emit('user-joined', userData);
     });
@@ -38,11 +40,22 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('user-voice-state', { socketId: socket.id, isSpeaking });
     });
 
+    // TRANSMISSÃO TEXTUAL COORDENADA
+    socket.on('muted-chat-msg-send', (payload) => {
+        io.emit('muted-chat-msg-broadcast', payload);
+    });
+
+    // MAFRA DIVISION PODERES SINK
+    socket.on('mafra-target-division-change', (division) => {
+        currentMafraTargetDivision = division;
+        socket.broadcast.emit('mafra-target-division-broadcast', division);
+    });
+
     // PTT LÍDERES
     socket.on('leader-ptt-start', () => socket.broadcast.emit('leader-ptt-activated', socket.id));
     socket.on('leader-ptt-stop', () => socket.broadcast.emit('leader-ptt-deactivated', socket.id));
 
-    // OVERRIDE MAFRAINF (NOVO)
+    // OVERRIDE MAFRAINF (CRÍTICO)
     socket.on('mafra-override-start', () => {
         isMafraOverrideActive = true;
         socket.broadcast.emit('mafra-override-activated');
@@ -53,7 +66,7 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('mafra-override-deactivated');
     });
 
-    // CONTROLE ADMINISTRATIVO
+    // CONTROLE ADMINISTRATIVO RIGOROSO
     socket.on('admin-action-execute', ({ targetId, action }) => {
         const user = connectedUsers.find(u => u.id === targetId);
         if (user) {
@@ -65,10 +78,17 @@ io.on('connection', (socket) => {
                 } else {
                     user.role = 'membro';
                 }
-                socket.broadcast.emit('admin-action-broadcast', { targetId, action });
+                io.emit('admin-action-broadcast', { targetId, action });
             } else if (action === 'ban') {
                 user.status = user.status === 'banned' ? 'active' : 'banned';
                 io.emit('admin-action-broadcast', { targetId, action });
+                
+                // EXECUTA O CORTE EM TEMPO REAL E DISPARA EMISSÃO DE TRAVA FÍSICA NO CODIGO CLIENTE
+                const targetSocket = io.sockets.sockets.get(user.socketId);
+                if (targetSocket && user.status === 'banned') {
+                    targetSocket.emit('banned-from-network-lock');
+                    targetSocket.disconnect();
+                }
             } else if (action === 'kick') {
                 user.status = 'kicked';
                 io.emit('admin-action-broadcast', { targetId, action });
@@ -83,7 +103,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // DESCENTRALIZAÇÃO DA REDE (CORRIGIDO)
     socket.on('decentralize-network-execute', (status) => {
         isDecentralizedGlobal = status;
         socket.broadcast.emit('decentralize-network-broadcast', status);
