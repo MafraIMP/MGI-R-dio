@@ -104,7 +104,8 @@
 
         .node.muted-attn { filter: grayscale(100%); opacity: 0.5; border-color: var(--mafra) !important; }
         .node.muted-attn::after { content: '\f023'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: var(--mafra); position: absolute; font-size: 1.5rem; text-shadow: 0 0 10px #000; }
-        .node.banned { border-color: var(--danger) !important; opacity: 0.2; }
+        .node.banned { border-color: var(--danger) !important; opacity: 0.4; filter: grayscale(80%); }
+        .node.banned::after { content: '\f05e'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: var(--danger); position: absolute; font-size: 1.5rem; text-shadow: 0 0 10px #000; }
         .node.self-muted::after { content: '\f131'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: #ff003c; position: absolute; font-size: 1.5rem; text-shadow: 0 0 10px #000; }
 
         .tier-mafra .node { width: 100px; height: 100px; border-color: var(--mafra); color: var(--mafra); box-shadow: inset 0 0 20px rgba(176,38,255,0.2); }
@@ -268,7 +269,7 @@
     let currentUser = null;
     let systemUsers = []; 
     let activeLeaderPTTs = new Set();
-    let remoteCandidatesQueue = {}; // CORREÇÃO BUG SEVERO: Fila para gerenciar candidatos ICE assíncronos
+    let remoteCandidatesQueue = {}; 
     
     let isDecentralized = false;
     let isSelfMuted = false;
@@ -291,7 +292,7 @@
         }
     });
 
-    function executarLogin() {
+    async function executarLogin() {
         const user = document.getElementById('log-user').value.trim();
         const code = document.getElementById('log-code').value;
         const div = document.getElementById('log-div').value;
@@ -313,10 +314,11 @@
             status: 'active'
         };
 
-        systemUsers.push(currentUser);
+        // CORREÇÃO CRÍTICA: Aguarda a captura do microfone ANTES de sinalizar entrada na rede
+        await iniciarCapturaMicrofone(); 
         iniciarInterfaceHUD();
-        iniciarCapturaMicrofone(); 
 
+        systemUsers.push(currentUser);
         socket.emit('join-network', currentUser);
     }
 
@@ -337,7 +339,6 @@
         renderAdminPanel();
     }
 
-    // CORREÇÃO: Painel de botões do HUD renderiza cirurgicamente dependendo do cargo atual atualizado
     function updateHUDButtons() {
         if(!currentUser) return;
         const color = divisionColors[currentUser.division];
@@ -365,6 +366,10 @@
         if(!currentUser) return;
         if(currentUser.role === 'imperador') {
             document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">Monitoramento Global Ativado.</span>`;
+            return;
+        }
+        if(currentUser.status === 'banned') {
+            document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--danger)">CONEXÃO RESTRITA</span><br><span style="color:var(--danger)">Você foi BANIDO pelo comando.</span>`;
             return;
         }
         const color = divisionColors[currentUser.division];
@@ -458,30 +463,27 @@
         }
     }
 
-    // CORREÇÃO MÁXIMA: Roteamento de áudio centralizado/descentralizado corrigido e integrado ao PTT Líderes
     function enforceAudioRouting() {
         systemUsers.forEach(u => {
             if (u.id === currentUser.id || !u.socketId) return;
             const audioEl = document.getElementById(`audio_${u.socketId}`);
             if (audioEl) {
-                if (u.status === 'banned' || u.status === 'kicked') {
+                // CORREÇÃO SEGURANÇA: Se você está banido ou o alvo está banido/expulso, muta totalmente.
+                if (currentUser.status === 'banned' || u.status === 'banned' || u.status === 'kicked') {
                     audioEl.muted = true;
                     return;
                 }
                 
-                // Regra 1: Descentralizado libera geral
                 if (isDecentralized) {
                     audioEl.muted = false;
                     return;
                 }
 
-                // Regra 2: Imperador ouve todos e todos ouvem o Imperador
                 if (currentUser.role === 'imperador' || u.role === 'imperador') {
                     audioEl.muted = false;
                     return;
                 }
 
-                // Regra 3: Se o alvo ativou o PTT Líderes, os outros líderes ouvem mesmo de outra divisão
                 if (activeLeaderPTTs.has(u.socketId)) {
                     if (currentUser.role === 'lider') {
                         audioEl.muted = false;
@@ -489,17 +491,15 @@
                     }
                 }
 
-                // Regra 4: Mesma divisão se ouve naturalmente por VAD aberto
                 if (u.division === currentUser.division) {
                     audioEl.muted = false;
                 } else {
-                    audioEl.muted = true; // Bloqueio do rádio centralizado
+                    audioEl.muted = true; 
                 }
             }
         });
     }
 
-    // Controle do novo Botão PTT Líderes
     function startPTTLideres() {
         if(currentUser.role !== 'lider') return;
         document.getElementById('btn-ptt-lideres').classList.add('active-state');
@@ -656,7 +656,6 @@
         });
     }
 
-    // CORREÇÃO UNIFICADA: Atualiza o cargo dinamicamente sem bumerangue e sem bugs visuais
     function admAction(id, action, fromServer) {
         const user = systemUsers.find(u => u.id === id);
         if(!user) return;
@@ -678,10 +677,6 @@
             if (currentUser && user.id === currentUser.id) currentUser.status = user.status;
         } else if (action === 'kick') {
             user.status = 'kicked';
-            if (currentUser && user.id === currentUser.id) {
-                alert("Você foi removido da rede pelo Comando Central.");
-                location.reload();
-            }
         }
         
         updateHUDButtons();
@@ -694,7 +689,12 @@
         }
     }
 
-    // RECEPÇÃO SINALIZAÇÃO DO SERVIDOR
+    // EVENTO ADICIONAL DE EXPULSÃO FORÇADA
+    socket.on('kicked-from-network', () => {
+        alert("Você foi removido e desconectado da rede pelo Comando Central.");
+        location.reload();
+    });
+
     socket.on('network-users', (serverUsers, serverDecentralized) => {
         serverUsers.forEach(sUser => {
             if (sUser.id !== currentUser.id) {
@@ -747,7 +747,6 @@
         }
     });
 
-    // Trata ativação do PTT Líderes vindo do servidor
     socket.on('leader-ptt-activated', (socketId) => {
         activeLeaderPTTs.add(socketId);
         let targetUser = systemUsers.find(u => u.socketId === socketId);
@@ -776,7 +775,6 @@
         if (isDecentralized !== status) toggleDecentralize('fromServer');
     });
 
-    // CORREÇÃO SEVERA DO WEBRTC: Injeção com proteção de fila assíncrona
     socket.on('webrtc-signal', async ({ from, signal }) => {
         if (!peerConnections[from]) initiatePeerConnection(from, false);
         const pc = peerConnections[from];
@@ -789,7 +787,6 @@
                     socket.emit('webrtc-signal', { to: from, signal: { sdp: pc.localDescription } });
                 }
                 
-                // Processa candidatos que aguardavam a descrição remota ser concluída
                 if (remoteCandidatesQueue[from]) {
                     while (remoteCandidatesQueue[from].length > 0) {
                         const candidate = remoteCandidatesQueue[from].shift();
@@ -797,7 +794,6 @@
                     }
                 }
             } else if (signal.candidate) {
-                // Se a descrição remota já estiver pronta, adiciona imediatamente, se não, joga na fila
                 if (pc.remoteDescription && pc.remoteDescription.type) {
                     await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
                 } else {
