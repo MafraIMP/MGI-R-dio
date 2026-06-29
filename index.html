@@ -297,14 +297,19 @@
     const user = document.getElementById('log-user').value.trim();
     const code = document.getElementById('log-code').value;
     const div = document.getElementById('log-div').value;
+    const errEl = document.getElementById('login-err');
 
-    if (code !== 'MGI2026') { document.getElementById('login-err').style.display = 'block'; return; }
-    if (user === '') return;
+    if (code !== 'MGI2026') { errEl.style.display = 'block'; errEl.innerText = 'ACESSO NEGADO. CHAVE INVÁLIDA.'; return; }
+    if (user === '') { errEl.style.display = 'block'; errEl.innerText = 'IDENTIFICAÇÃO OBRIGATÓRIA.'; return; }
 
-    // CORREÇÃO CRÍTICA: Desbloqueia a placa de áudio do navegador forçadamente no momento do clique.
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const tempCtx = new AudioContext();
-    await tempCtx.resume();
+    errEl.style.display = 'none';
+
+    // Desbloqueia a placa de áudio do navegador forçadamente no momento do clique.
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const tempCtx = new AudioContext();
+        await tempCtx.resume();
+    } catch(e) { /* ignora se não suportado */ }
 
     const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
     
@@ -313,9 +318,10 @@
         division: isMafra ? 'roxo' : div, avatar: localAvatarData, status: 'active'
     };
 
-    await iniciarCapturaMicrofone(); 
-    iniciarInterfaceHUD();
+    // Microfone: tenta capturar, mas não bloqueia o login se negar
+    await iniciarCapturaMicrofone();
 
+    iniciarInterfaceHUD();
     systemUsers.push(currentUser);
     socket.emit('join-network', currentUser);
 }
@@ -376,7 +382,7 @@
         }
     }
 
-    // APRIMORAMENTO 1: Constrains de áudio para evitar travamentos e eco
+    // Captura de microfone: se negado, entra sem áudio (não bloqueia o login)
     async function iniciarCapturaMicrofone() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -439,7 +445,9 @@
             checarVolume();
         } catch (err) {
             console.error("Erro de Microfone:", err);
-            document.getElementById('vad-status').innerText = 'ERROR';
+            const vadEl = document.getElementById('vad-status');
+            if (vadEl) { vadEl.innerText = 'SEM MIC'; vadEl.style.color = 'orange'; }
+            // Entra sem microfone — não bloqueia o login
         }
     }
 
@@ -531,8 +539,12 @@
 
     function toggleAdminPanel() { /* ... Mantenha igual ... */ document.getElementById('admin-panel').classList.toggle('open'); renderAdminPanel(); }
 
-    function toggleDecentralize() {
-        isDecentralized = !isDecentralized;
+    function toggleDecentralize(fromServer, forceStatus) {
+        if (fromServer === 'fromServer' && forceStatus !== undefined) {
+            isDecentralized = forceStatus;
+        } else {
+            isDecentralized = !isDecentralized;
+        }
         const btn = document.getElementById('btn-decentralize');
         
         if(isDecentralized) {
@@ -547,7 +559,7 @@
         updateCommsStatusText();
         enforceAudioRouting();
 
-        if (arguments[0] !== 'fromServer') {
+        if (fromServer !== 'fromServer') {
             socket.emit('decentralize-network-execute', isDecentralized);
         }
     }
@@ -658,7 +670,7 @@
                 else Object.assign(exists, sUser);
             }
         });
-        if (serverState.decentralized !== isDecentralized) toggleDecentralize('fromServer');
+        if (serverState.decentralized !== isDecentralized) toggleDecentralize('fromServer', serverState.decentralized);
         if (serverState.override !== isMafraOverrideActive) { isMafraOverrideActive = serverState.override; enforceAudioRouting(); }
         renderTopology(); renderAdminPanel();
 
@@ -704,7 +716,7 @@
     socket.on('mafra-override-deactivated', () => { isMafraOverrideActive = false; enforceAudioRouting(); });
 
     socket.on('admin-action-broadcast', ({ targetId, action }) => { admAction(targetId, action, 'fromServer'); });
-    socket.on('decentralize-network-broadcast', (status) => { if (isDecentralized !== status) toggleDecentralize('fromServer'); });
+    socket.on('decentralize-network-broadcast', (status) => { if (isDecentralized !== status) toggleDecentralize('fromServer', status); });
 
     socket.on('webrtc-signal', async ({ from, signal }) => {
         if (!peerConnections[from]) initiatePeerConnection(from, false);
