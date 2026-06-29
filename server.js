@@ -34,7 +34,16 @@ io.on('connection', (socket) => {
         socket.broadcast.emit('user-voice-state', { socketId: socket.id, isSpeaking });
     });
 
-    // CORRIGIDO: Agora usa socket.broadcast.emit para não causar efeito bumerangue no Imperador
+    // EVENTOS DE PTT LÍDERES SINCROINIZADOS
+    socket.on('leader-ptt-start', () => {
+        socket.broadcast.emit('leader-ptt-activated', socket.id);
+    });
+
+    socket.on('leader-ptt-stop', () => {
+        socket.broadcast.emit('leader-ptt-deactivated', socket.id);
+    });
+
+    // CONTROLE ADMINISTRATIVO CORRIGIDO
     socket.on('admin-action-execute', ({ targetId, action }) => {
         const user = connectedUsers.find(u => u.id === targetId);
         if (user) {
@@ -46,13 +55,25 @@ io.on('connection', (socket) => {
                 } else {
                     user.role = 'membro';
                 }
+                socket.broadcast.emit('admin-action-broadcast', { targetId, action });
             } else if (action === 'ban') {
                 user.status = user.status === 'banned' ? 'active' : 'banned';
+                socket.broadcast.emit('admin-action-broadcast', { targetId, action });
+                // Notifica o próprio usuário banido para atualizar o estado local dele instantaneamente
+                io.to(user.socketId).emit('admin-action-broadcast', { targetId, action });
             } else if (action === 'kick') {
                 user.status = 'kicked';
+                socket.broadcast.emit('admin-action-broadcast', { targetId, action });
+                
+                // Expulsão física e desconexão imediata do Socket no servidor
+                const targetSocket = io.sockets.sockets.get(user.socketId);
+                if (targetSocket) {
+                    targetSocket.emit('kicked-from-network');
+                    targetSocket.disconnect();
+                }
+                connectedUsers = connectedUsers.filter(u => u.id !== targetId);
             }
         }
-        socket.broadcast.emit('admin-action-broadcast', { targetId, action });
     });
 
     socket.on('decentralize-network-execute', (status) => {
