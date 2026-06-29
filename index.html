@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M.G.I // NEXUS DE COMUNICAÇÃO SUPREMO - V2</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+
+        :root {
+            --bg-deep: #020203;
+            --grid-line: rgba(75, 0, 130, 0.1);
+            --mafra: #b026ff;
+            --vermelho: #ff1a1a;
+            --amarelo: #ffcc00;
+            --purpura: #8a2be2; /* Substitui o Azul */
+            --cinza: #a0a0a0;
+            --text-main: #f0f0f0;
+            --panel-bg: rgba(5, 5, 8, 0.95);
+            --danger: #ff003c;
+            --success: #00ff55;
+            --font-ui: 'Space Mono', monospace;
+            --font-display: 'Rajdhani', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background-color: var(--bg-deep);
+            background-image: 
+                linear-gradient(var(--grid-line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+            background-size: 50px 50px;
+            color: var(--text-main);
+            font-family: var(--font-display);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ================= LOGIN ================= */
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.95); z-index: 1000;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .login-box {
+            background: var(--panel-bg); border: 1px solid var(--mafra);
+            padding: 40px; width: 450px; box-shadow: 0 0 50px rgba(176, 38, 255, 0.15);
+            border-radius: 4px; position: relative; overflow: hidden;
+        }
+        .login-box::before {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px;
+            background: linear-gradient(90deg, transparent, var(--mafra), transparent);
+        }
+        .login-box h1 { font-family: var(--font-ui); color: var(--mafra); text-align: center; margin-bottom: 30px; letter-spacing: 2px; }
+        
+        .input-group { margin-bottom: 20px; }
+        .input-group label { display: block; font-family: var(--font-ui); font-size: 0.8rem; color: #777; margin-bottom: 8px; text-transform: uppercase; }
+        .input-group input, .input-group select {
+            width: 100%; padding: 12px; background: rgba(0,0,0,0.5); border: 1px solid #333;
+            color: #fff; font-family: var(--font-ui); outline: none; transition: 0.3s;
+        }
+        .input-group input[type="file"] { padding: 8px; font-size: 0.8rem; cursor: pointer; }
+        .input-group input:focus, .input-group select:focus { border-color: var(--mafra); box-shadow: inset 0 0 10px rgba(176,38,255,0.2); }
+        
+        .btn-login {
+            width: 100%; padding: 15px; background: transparent; border: 1px solid var(--mafra);
+            color: var(--mafra); font-weight: bold; cursor: pointer; text-transform: uppercase;
+            transition: all 0.3s; font-family: var(--font-ui); font-size: 1rem; letter-spacing: 1px;
+            margin-top: 10px;
+        }
+        .btn-login:hover { background: var(--mafra); color: #fff; box-shadow: 0 0 30px rgba(176,38,255,0.4); }
+
+        /* ================= MAPA TOPOLÓGICO ================= */
+        #map-container { display: none; flex: 1; overflow: auto; padding: 40px; }
+        .topology-wrapper { display: flex; flex-direction: column; align-items: center; min-width: 1400px; padding-bottom: 120px; }
+        
+        .connector-line { width: 2px; background: rgba(255,255,255,0.1); margin: 0 auto; transition: all 0.3s; }
+        .connector-horizontal { height: 2px; background: rgba(255,255,255,0.1); width: 85%; margin: 0 auto; }
+
+        .node-wrapper { display: flex; flex-direction: column; align-items: center; position: relative; }
+        
+        .node {
+            border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            background-size: cover; background-position: center; position: relative;
+            cursor: pointer; border: 2px solid #333; background-color: #0a0a0a;
+            transition: all 0.1s; /* Rápido para a voz */
+            z-index: 10;
+        }
+        .node-name {
+            margin-top: 12px; font-family: var(--font-ui); font-size: 0.75rem; color: #888;
+            background: rgba(0,0,0,0.8); padding: 4px 8px; border-radius: 4px; border: 1px solid #222;
+            white-space: nowrap; transition: color 0.3s;
+        }
+
+        /* Efeito Microfone Aberto (Pulsar Ativo por Voz) */
+        .node.mic-open { border-color: currentColor; box-shadow: 0 0 25px currentColor; transform: scale(1.1); }
+        .node.mic-open::before {
+            content: ''; position: absolute; top: -5px; left: -5px; right: -5px; bottom: -5px;
+            border-radius: 50%; border: 1px solid currentColor; animation: pulse-ring 1s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+        }
+        @keyframes pulse-ring { 0% { transform: scale(0.95); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+
+        .node.muted-attn { filter: grayscale(100%); opacity: 0.5; border-color: var(--mafra) !important; }
+        .node.muted-attn::after { content: '\f023'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: var(--mafra); position: absolute; font-size: 1.5rem; text-shadow: 0 0 10px #000; }
+        .node.banned { border-color: var(--danger) !important; opacity: 0.2; }
+        .node.self-muted::after { content: '\f131'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: #ff003c; position: absolute; font-size: 1.5rem; text-shadow: 0 0 10px #000; }
+
+        .tier-mafra .node { width: 100px; height: 100px; border-color: var(--mafra); color: var(--mafra); box-shadow: inset 0 0 20px rgba(176,38,255,0.2); }
+        .tier-mafra .node-name { color: var(--mafra); border-color: var(--mafra); font-size: 0.9rem; font-weight: bold; }
+        
+        .tier-lider .node { width: 80px; height: 80px; }
+        .tier-membros .node { width: 60px; height: 60px; }
+
+        .divisions-container { display: flex; justify-content: space-around; width: 100%; margin-top: -1px; }
+        .division { display: flex; flex-direction: column; align-items: center; width: 25%; }
+        
+        .div-vermelho { color: var(--vermelho); } .div-vermelho .connector-line { background: rgba(255,26,26,0.3); }
+        .div-amarelo { color: var(--amarelo); } .div-amarelo .connector-line { background: rgba(255,204,0,0.3); }
+        .div-purpura { color: var(--purpura); } .div-purpura .connector-line { background: rgba(138,43,226,0.3); }
+        .div-cinza { color: var(--cinza); } .div-cinza .connector-line { background: rgba(160,160,160,0.3); }
+
+        .grid-membros { display: flex; gap: 40px; margin-top: 20px; position: relative; }
+        .coluna-esq, .coluna-dir { display: flex; flex-direction: column; gap: 20px; position: relative; }
+        .grid-membros::before { content:''; position:absolute; left:50%; top:0; bottom:0; width:1px; background: rgba(255,255,255,0.1); transform: translateX(-50%); }
+
+        .node.ghost { background: transparent; border: 1px dashed #444; color: #444; cursor: default; box-shadow: none; }
+        .node.ghost::before { display: none; }
+
+        /* ================= HUD INFERIOR TÁTICO ================= */
+        #bottom-hud {
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 110px;
+            background: #050505; border-top: 1px solid #222; display: flex;
+            justify-content: space-between; align-items: center; padding: 0 40px; z-index: 500;
+        }
+        .hud-profile { display: flex; align-items: center; gap: 20px; width: 300px; }
+        .hud-avatar { width: 70px; height: 70px; border-radius: 50%; border: 2px solid; background-size: cover; background-position: center; }
+        .hud-info h2 { font-size: 1.4rem; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; }
+        .hud-info p { font-family: var(--font-ui); font-size: 0.75rem; color: #888; }
+        
+        .hud-controls { flex: 1; display: flex; justify-content: center; align-items: center; flex-direction: column; gap: 10px; }
+        
+        .comms-status { font-family: var(--font-ui); font-size: 0.85rem; color: #aaa; text-align: center; }
+        .comms-highlight { color: #fff; font-weight: bold; }
+
+        /* Botões Gerais */
+        .btn {
+            padding: 10px 20px; border-radius: 4px; border: 1px solid currentColor; background: transparent;
+            color: inherit; font-family: var(--font-ui); font-size: 0.9rem; font-weight: bold; cursor: pointer;
+            transition: all 0.2s; letter-spacing: 1px; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn:hover { background: rgba(255,255,255,0.1); }
+        .btn:active { transform: scale(0.97); }
+        .btn.active-state { background: currentColor; color: #000; box-shadow: 0 0 20px currentColor; }
+
+        /* ================= PAINEL DO IMPERADOR ================= */
+        #admin-panel {
+            position: fixed; right: -400px; top: 0; width: 400px; height: 100%;
+            background: var(--panel-bg); border-left: 1px solid var(--mafra);
+            z-index: 2000; transition: right 0.3s ease; display: flex; flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.8);
+        }
+        #admin-panel.open { right: 0; }
+        .admin-header { padding: 20px; background: rgba(176,38,255,0.1); border-bottom: 1px solid var(--mafra); display: flex; justify-content: space-between; align-items: center; }
+        .admin-header h2 { color: var(--mafra); font-family: var(--font-ui); font-size: 1.2rem; }
+        .close-admin { color: #fff; cursor: pointer; font-size: 1.2rem; }
+        
+        .admin-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+        .user-row { background: #111; border: 1px solid #333; padding: 15px; border-radius: 4px; }
+        .user-row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .user-row-name { font-family: var(--font-ui); font-weight: bold; font-size: 1rem; color: #fff; }
+        .user-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+        .action-btn { padding: 5px 10px; font-size: 0.7rem; font-family: var(--font-ui); cursor: pointer; background: #222; border: 1px solid #444; color: #aaa; border-radius: 3px; transition: 0.2s; }
+        .action-btn:hover { background: #333; color: #fff; }
+        .action-btn.ban:hover { background: var(--danger); border-color: var(--danger); }
+        .action-btn.promote:hover { background: var(--success); border-color: var(--success); color: #000; }
+
+        .admin-footer { padding: 20px; border-top: 1px solid #333; }
+        
+        .global-override-active { background: rgba(176,38,255,0.05); border: 8px solid var(--mafra); position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="global-override-active" id="global-override-ui"></div>
+
+    <div id="login-overlay">
+        <div class="login-box">
+            <h1>M.G.I TERMINAL</h1>
+            <div class="input-group">
+                <label>Identificação de Agente</label>
+                <input type="text" id="log-user" placeholder="Seu nome..." />
+            </div>
+            <div class="input-group">
+                <label>Divisão Designada</label>
+                <select id="log-div">
+                    <option value="vermelho">Divisão Vermelha</option>
+                    <option value="amarelo">Divisão Amarela</option>
+                    <option value="purpura">Braço Púrpura (Alto Escalão)</option>
+                    <option value="cinza">Divisão Cinza</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>Código de Autorização Central</label>
+                <input type="password" id="log-code" placeholder="MGI2026" />
+            </div>
+            <div class="input-group">
+                <label>Avatar (Selecione da Galeria)</label>
+                <input type="file" id="log-avatar" accept="image/*" />
+            </div>
+            <button class="btn-login" onclick="executarLogin()">Estabelecer Conexão</button>
+            <p id="login-err" style="color:var(--danger); font-family:var(--font-ui); font-size:0.8rem; margin-top:15px; text-align:center; display:none;">ACESSO NEGADO. CHAVE INVÁLIDA.</p>
+        </div>
+    </div>
+
+    <div id="admin-panel">
+        <div class="admin-header">
+            <h2><i class="fa-solid fa-chess-king"></i> COMANDO CENTRAL</h2>
+            <i class="fa-solid fa-xmark close-admin" onclick="toggleAdminPanel()"></i>
+        </div>
+        <div class="admin-body" id="admin-user-list">
+            </div>
+        <div class="admin-footer">
+            <button class="btn" id="btn-decentralize" style="width: 100%; justify-content: center; border-color: var(--success); color: var(--success);" onclick="toggleDecentralize()">
+                <i class="fa-solid fa-earth-americas"></i> DESCENTRALIZAR REDE
+            </button>
+        </div>
+    </div>
+
+    <div id="map-container">
+        <div class="topology-wrapper" id="topology-root"></div>
+    </div>
+
+    <div id="bottom-hud" style="display:none;">
+        <div class="hud-profile">
+            <div class="hud-avatar" id="hud-img"></div>
+            <div class="hud-info">
+                <h2 id="hud-name">USUÁRIO</h2>
+                <p id="hud-role">CARGO | DIVISÃO</p>
+            </div>
+        </div>
+
+        <div class="hud-controls" id="hud-controls-area">
+            <div class="comms-status" id="comms-status-text">STATUS DA COMUNICAÇÃO</div>
+            
+            <div style="display: flex; gap: 15px;">
+                <button class="btn" id="btn-mute-self" onclick="toggleSelfMute()" style="display:none;">
+                    <i class="fa-solid fa-microphone"></i> <span>SILENCIAR</span>
+                </button>
+
+                <button class="btn" id="btn-ptt-mafra" onmousedown="startPTTMafra()" onmouseup="stopPTTMafra()" onmouseleave="stopPTTMafra()" style="display:none; color: var(--mafra);">
+                    <i class="fa-solid fa-tower-broadcast"></i> OVERRIDE
+                </button>
+                <button class="btn" id="btn-open-admin" onclick="toggleAdminPanel()" style="display:none; color: var(--mafra);">
+                    <i class="fa-solid fa-sliders"></i> PAINEL ADM
+                </button>
+            </div>
+        </div>
+
+        <div style="width: 300px; text-align: right;">
+            <span style="font-family:var(--font-ui); font-size:0.7rem; color:#444;">VAD DETECT: <span id="vad-status">OFF</span> | PING: 12ms</span>
+        </div>
+    </div>
+
+<script>
+    let currentUser = null;
+    let systemUsers = [
+        // Adicionando alguns bots genéricos apenas para o Mafra ter quem gerenciar no painel no primeiro login
+        { id: 'b1', name: 'GHOST_01', role: 'membro', division: 'vermelho', status: 'active', attn: false, avatar: '' },
+        { id: 'b2', name: 'ECHO_09', role: 'lider', division: 'amarelo', status: 'active', attn: false, avatar: '' }
+    ]; 
+    
+    let isDecentralized = false;
+    let isSelfMuted = false;
+    let localAvatarData = '';
+
+    const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
+
+    // ADICIONADO: Variáveis de infraestrutura de rede WebRTC / Sockets
+    let socket = io();
+    let localStream = null;
+    let peerConnections = {};
+    let lastSpeakingState = false;
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    // ==========================================
+    // UPLOAD DE IMAGEM LOCAL
+    // ==========================================
+    document.getElementById('log-avatar').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                localAvatarData = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // ==========================================
+    // LOGIN
+    // ==========================================
+    function executarLogin() {
+        const user = document.getElementById('log-user').value.trim();
+        const code = document.getElementById('log-code').value;
+        const div = document.getElementById('log-div').value;
+
+        if (code !== 'MGI2026') {
+            document.getElementById('login-err').style.display = 'block';
+            return;
+        }
+        if (user === '') return;
+
+        const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
+        
+        currentUser = {
+            id: 'u_' + Date.now(),
+            name: user,
+            role: isMafra ? 'imperador' : 'membro',
+            division: isMafra ? 'roxo' : div, // Mafra no topo
+            avatar: localAvatarData,
+            status: 'active',
+            attn: false
+        };
+
+        systemUsers.push(currentUser);
+        iniciarInterfaceHUD();
+        iniciarCapturaMicrofone(); // Inicia o Analisador de Áudio Real
+
+        // ADICIONADO: Sincroniza a entrada do agente com o servidor central
+        socket.emit('join-network', currentUser);
+    }
+
+    function iniciarInterfaceHUD() {
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('map-container').style.display = 'block';
+        document.getElementById('bottom-hud').style.display = 'flex';
+
+        const color = divisionColors[currentUser.division];
+        document.getElementById('hud-name').innerText = currentUser.name;
+        document.getElementById('hud-role').innerText = `${currentUser.role.toUpperCase()} // DIV ${currentUser.division.toUpperCase()}`;
+        document.getElementById('hud-img').style.borderColor = color;
+        if(currentUser.avatar) document.getElementById('hud-img').style.backgroundImage = `url(${currentUser.avatar})`;
+
+        const controlsArea = document.getElementById('hud-controls-area');
+        const statusText = document.getElementById('comms-status-text');
+        
+        controlsArea.style.color = color;
+
+        if (currentUser.role === 'imperador') {
+            statusText.innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">Monitoramento Global Ativado.</span>`;
+            document.getElementById('btn-ptt-mafra').style.display = 'inline-flex';
+            document.getElementById('btn-open-admin').style.display = 'inline-flex';
+            document.getElementById('btn-mute-self').style.display = 'none';
+        } else {
+            updateCommsStatusText();
+            document.getElementById('btn-mute-self').style.display = 'inline-flex';
+            document.getElementById('btn-mute-self').style.color = color;
+        }
+
+        renderTopology();
+        renderAdminPanel();
+    }
+
+    function updateCommsStatusText() {
+        if(currentUser.role === 'imperador') return;
+        const color = divisionColors[currentUser.division];
+        const statusText = document.getElementById('comms-status-text');
+        
+        if (isDecentralized) {
+            statusText.innerHTML = `VAD ATIVO <br> <span style="color:#666">Rede Descentralizada:</span> <span class="comms-highlight" style="color:var(--success)">CANAL GLOBAL ABERTO</span>`;
+        } else {
+            statusText.innerHTML = `VAD ATIVO <br> <span style="color:#666">Transmitindo para:</span> <span class="comms-highlight" style="color:${color}">ESQUADRÃO ${currentUser.division.toUpperCase()}</span>`;
+        }
+    }
+
+    // ==========================================
+    // CAPTURA DE MICROFONE REAL (VAD)
+    // ==========================================
+    async function iniciarCapturaMicrofone() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // ADICIONADO: Vincula a captura do hardware ao fluxo de áudio WebRTC global
+            localStream = stream;
+
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const microphone = audioContext.createMediaStreamSource(stream);
+            
+            microphone.connect(analyser);
+            analyser.fftSize = 256;
+            
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            function checarVolume() {
+                requestAnimationFrame(checarVolume);
+                
+                if (isSelfMuted || currentUser.status === 'banned') {
+                    document.getElementById('vad-status').innerText = 'MUTED';
+                    document.getElementById('vad-status').style.color = 'red';
+                    const node = document.getElementById(`node_${currentUser.id}`);
+                    if(node) node.classList.remove('mic-open');
+                    
+                    // ADICIONADO: Avisa os peers se estiver mutado
+                    if(lastSpeakingState !== false) {
+                        lastSpeakingState = false;
+                        socket.emit('voice-state', false);
+                    }
+                    return;
+                }
+
+                analyser.getByteFrequencyData(dataArray);
+                let soma = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    soma += dataArray[i];
+                }
+                let mediaVolume = soma / bufferLength;
+
+                const vadStatus = document.getElementById('vad-status');
+                const myNode = document.getElementById(`node_${currentUser.id}`);
+
+                // Threshold de Ativação (Ajuste se precisar, 15 é bom para não pegar chiado)
+                if (mediaVolume > 15) {
+                    vadStatus.innerText = 'ON';
+                    vadStatus.style.color = 'var(--success)';
+                    if(myNode) myNode.classList.add('mic-open');
+                } else {
+                    vadStatus.innerText = 'IDLE';
+                    vadStatus.style.color = '#444';
+                    if(myNode) myNode.classList.remove('mic-open');
+                }
+
+                // ADICIONADO: Sincroniza o estado de transmissão da voz com os outros terminais da rede
+                let currentSpeaking = (mediaVolume > 15);
+                if (currentSpeaking !== lastSpeakingState) {
+                    lastSpeakingState = currentSpeaking;
+                    socket.emit('voice-state', currentSpeaking);
+                }
+            }
+            checarVolume();
+        } catch (err) {
+            console.error("Permissão de microfone negada ou erro:", err);
+            document.getElementById('vad-status').innerText = 'ERROR';
+        }
+    }
+
+    function toggleSelfMute() {
+        isSelfMuted = !isSelfMuted;
+        const btn = document.getElementById('btn-mute-self');
+        const node = document.getElementById(`node_${currentUser.id}`);
+        
+        if(isSelfMuted) {
+            btn.classList.add('active-state');
+            btn.innerHTML = `<i class="fa-solid fa-microphone-slash"></i> <span>MUTADO</span>`;
+            btn.style.color = '#ff003c';
+            btn.style.borderColor = '#ff003c';
+            if(node) node.classList.add('self-muted');
+        } else {
+            btn.classList.remove('active-state');
+            btn.innerHTML = `<i class="fa-solid fa-microphone"></i> <span>SILENCIAR</span>`;
+            btn.style.color = divisionColors[currentUser.division];
+            btn.style.borderColor = divisionColors[currentUser.division];
+            if(node) node.classList.remove('self-muted');
+        }
+    }
+
+    // ==========================================
+    // TOPOLOGIA EXATA
+    // ==========================================
+    function renderTopology() {
+        const root = document.getElementById('topology-root');
+        root.innerHTML = '';
+
+        const mafraUser = systemUsers.find(u => u.role === 'imperador');
+        const divisions = ['vermelho', 'amarelo', 'purpura', 'cinza'];
+
+        let html = `<div class="tier-mafra node-wrapper">`;
+        if (mafraUser) {
+            html += createNodeHTML(mafraUser);
+            html += `<div class="connector-line" style="height: 40px; background: var(--mafra);"></div>`;
+        } else {
+            html += `<div class="node ghost"><i class="fa-solid fa-crown"></i></div>`;
+            html += `<div class="node-name" style="color:#444; border:none; background:transparent;">TRONO VAZIO</div>`;
+            html += `<div class="connector-line" style="height: 40px;"></div>`;
+        }
+        html += `</div><div class="connector-horizontal"></div><div class="divisions-container">`;
+
+        divisions.forEach(div => {
+            const divUsers = systemUsers.filter(u => u.division === div && u.status !== 'kicked');
+            const lider = divUsers.find(u => u.role === 'lider');
+            const membros = divUsers.filter(u => u.role === 'membro');
+
+            html += `<div class="division div-${div}">`;
+            html += `<div class="connector-line" style="height: 30px;"></div>`;
+            
+            html += `<div class="tier-lider node-wrapper">`;
+            if (lider) html += createNodeHTML(lider);
+            else html += `<div class="node ghost"><i class="fa-solid fa-user-shield"></i></div><div class="node-name" style="background:transparent; border:none;">SEM LÍDER</div>`;
+            html += `</div><div class="connector-line" style="height: 30px;"></div><div class="tier-membros grid-membros">`;
+            
+            let colEsq = ''; let colDir = '';
+            membros.forEach((m, index) => {
+                const nodeHtml = `<div class="node-wrapper">${createNodeHTML(m)}</div>`;
+                if (index % 2 === 0) colEsq += nodeHtml; else colDir += nodeHtml;
+            });
+            if (membros.length === 0) {
+                colEsq = `<div class="node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div></div>`;
+                colDir = `<div class="node-wrapper"><div class="node ghost"><i class="fa-solid fa-user"></i></div></div>`;
+            }
+
+            html += `<div class="coluna-esq">${colEsq}</div><div class="coluna-dir">${colDir}</div></div></div>`;
+        });
+
+        html += `</div>`;
+        root.innerHTML = html;
+        
+        // Re-aplica classes de mudo local se renderizou de novo
+        if(isSelfMuted) {
+            const myNode = document.getElementById(`node_${currentUser.id}`);
+            if(myNode) myNode.classList.add('self-muted');
+        }
+    }
+
+    function createNodeHTML(user) {
+        let extraClass = '';
+        if (user.attn) extraClass += ' muted-attn';
+        if (user.status === 'banned') extraClass += ' banned';
+
+        let bg = user.avatar ? `background-image: url('${user.avatar}');` : '';
+        let icon = !user.avatar ? '<i class="fa-solid fa-user"></i>' : '';
+        if(user.role === 'imperador' && !user.avatar) icon = '<i class="fa-solid fa-crown"></i>';
+        if(user.role === 'lider' && !user.avatar) icon = '<i class="fa-solid fa-user-shield"></i>';
+
+        return `<div class="node ${extraClass}" id="node_${user.id}" style="${bg}">${icon}</div><div class="node-name">${user.name}</div>`;
+    }
+
+    // ==========================================
+    // CONTROLES DO IMPERADOR (PAINEL E OVERRIDE)
+    // ==========================================
+    function startPTTMafra() {
+        document.getElementById('btn-ptt-mafra').classList.add('active-state');
+        document.getElementById('global-override-ui').style.display = 'block';
+    }
+
+    function stopPTTMafra() {
+        document.getElementById('btn-ptt-mafra').classList.remove('active-state');
+        document.getElementById('global-override-ui').style.display = 'none';
+    }
+
+    function toggleAdminPanel() {
+        const panel = document.getElementById('admin-panel');
+        panel.classList.toggle('open');
+        renderAdminPanel();
+    }
+
+    function toggleDecentralize() {
+        isDecentralized = !isDecentralized;
+        const btn = document.getElementById('btn-decentralize');
+        
+        if(isDecentralized) {
+            btn.classList.add('active-state');
+            btn.innerHTML = `<i class="fa-solid fa-earth-americas"></i> REDE DESCENTRALIZADA (GLOBAL)`;
+            // Efeito visual no fundo
+            document.body.style.backgroundImage = 'linear-gradient(rgba(0,255,85, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,85, 0.1) 1px, transparent 1px)';
+        } else {
+            btn.classList.remove('active-state');
+            btn.innerHTML = `<i class="fa-solid fa-earth-americas"></i> DESCENTRALIZAR REDE`;
+            document.body.style.backgroundImage = 'linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px)';
+        }
+        updateCommsStatusText();
+
+        // ADICIONADO: Propaga o comando de layout de rede para os outros clientes, evitando eco infinito
+        if (arguments[0] !== 'fromServer') {
+            socket.emit('decentralize-network-execute', isDecentralized);
+        }
+    }
+
+    function renderAdminPanel() {
+        if(currentUser?.role !== 'imperador') return;
+        
+        const list = document.getElementById('admin-user-list');
+        list.innerHTML = '';
+
+        systemUsers.forEach(u => {
+            if(u.role === 'imperador') return; // Não gerencia a si mesmo
+            
+            const isLider = u.role === 'lider';
+            const isBanned = u.status === 'banned';
+
+            list.innerHTML += `
+                <div class="user-row">
+                    <div class="user-row-header">
+                        <span class="user-row-name" style="color: ${divisionColors[u.division]}">${u.name} [${u.division.toUpperCase()}]</span>
+                        <span style="font-size:0.7rem; color:#888;">${u.role.toUpperCase()}</span>
+                    </div>
+                    <div class="user-actions">
+                        <button class="action-btn promote" onclick="admAction('${u.id}', 'role')">
+                            ${isLider ? 'Rebaixar' : 'Promover a Líder'}
+                        </button>
+                        <button class="action-btn ban" onclick="admAction('${u.id}', 'ban')">
+                            ${isBanned ? 'Remover Ban' : 'Banir'}
+                        </button>
+                        <button class="action-btn" onclick="admAction('${u.id}', 'kick')">Expulsar</button>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    function admAction(id, action) {
+        const user = systemUsers.find(u => u.id === id);
+        if(!user) return;
+
+        if (action === 'role') {
+            if (user.role === 'membro') {
+                // Rebaixa atual líder daquela divisão se existir
+                let liderAtual = systemUsers.find(u => u.division === user.division && u.role === 'lider');
+                if (liderAtual) liderAtual.role = 'membro';
+                user.role = 'lider';
+            } else {
+                user.role = 'membro';
+            }
+        } else if (action === 'ban') {
+            user.status = user.status === 'banned' ? 'active' : 'banned';
+        } else if (action === 'kick') {
+            user.status = 'kicked';
+        }
+        
+        renderAdminPanel();
+        renderTopology();
+
+        // ADICIONADO: Dispara a alteração de permissões para o servidor sincronizar todos os clientes
+        if (arguments[2] !== 'fromServer') {
+            socket.emit('admin-action-execute', { targetId: id, action: action });
+        }
+    }
+
+    // ==========================================
+    // ADICIONADO: Ouvintes WebSocket e Orquestração do WebRTC
+    // ==========================================
+    socket.on('network-users', (serverUsers, serverDecentralized) => {
+        // Une os usuários reais vindos do servidor aos bots do template original
+        serverUsers.forEach(sUser => {
+            if (sUser.id !== currentUser.id) {
+                let exists = systemUsers.find(u => u.id === sUser.id);
+                if (!exists) systemUsers.push(sUser);
+                else Object.assign(exists, sUser);
+            }
+        });
+        
+        if (serverDecentralized !== isDecentralized) {
+            toggleDecentralize('fromServer');
+        }
+        
+        renderTopology();
+        renderAdminPanel();
+
+        // Conecta-se em malha com todos os agentes pré-existentes na chamada
+        serverUsers.forEach(sUser => {
+            if (sUser.socketId && sUser.socketId !== socket.id) {
+                initiatePeerConnection(sUser.socketId, true);
+            }
+        });
+    });
+
+    socket.on('user-joined', (newUser) => {
+        let exists = systemUsers.find(u => u.id === newUser.id);
+        if (!exists) systemUsers.push(newUser);
+        else Object.assign(exists, newUser);
+        
+        renderTopology();
+        renderAdminPanel();
+    });
+
+    socket.on('user-left', (socketId) => {
+        let userLeft = systemUsers.find(u => u.socketId === socketId);
+        if (userLeft) {
+            systemUsers = systemUsers.filter(u => u.socketId !== socketId);
+        }
+        if (peerConnections[socketId]) {
+            peerConnections[socketId].close();
+            delete peerConnections[socketId];
+        }
+        const audioEl = document.getElementById(`audio_${socketId}`);
+        if(audioEl) audioEl.remove();
+
+        renderTopology();
+        renderAdminPanel();
+    });
+
+    socket.on('user-voice-state', ({ socketId, isSpeaking }) => {
+        let targetUser = systemUsers.find(u => u.socketId === socketId);
+        if (targetUser) {
+            const targetNode = document.getElementById(`node_${targetUser.id}`);
+            if (targetNode) {
+                if (isSpeaking) targetNode.classList.add('mic-open');
+                else targetNode.classList.remove('mic-open');
+            }
+        }
+    });
+
+    socket.on('admin-action-broadcast', ({ targetId, action }) => {
+        admAction(targetId, action, 'fromServer');
+    });
+
+    socket.on('decentralize-network-broadcast', (status) => {
+        if (isDecentralized !== status) {
+            toggleDecentralize('fromServer');
+        }
+    });
+
+    socket.on('webrtc-signal', async ({ from, signal }) => {
+        if (!peerConnections[from]) {
+            initiatePeerConnection(from, false);
+        }
+        const pc = peerConnections[from];
+        try {
+            if (signal.sdp) {
+                await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                if (signal.sdp.type === 'offer') {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit('webrtc-signal', { to: from, signal: { sdp: pc.localDescription } });
+                }
+            } else if (signal.candidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            }
+        } catch (e) {
+            console.error("Erro na negociação de sinalização WebRTC:", e);
+        }
+    });
+
+    function initiatePeerConnection(targetSocketId, isOfferor) {
+        if (peerConnections[targetSocketId]) return;
+
+        const pc = new RTCPeerConnection(rtcConfig);
+        peerConnections[targetSocketId] = pc;
+
+        if (localStream) {
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        }
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit('webrtc-signal', { to: targetSocketId, signal: { candidate: event.candidate } });
+            }
+        };
+
+        pc.ontrack = (event) => {
+            let remoteAudio = document.getElementById(`audio_${targetSocketId}`);
+            if (!remoteAudio) {
+                remoteAudio = document.createElement('audio');
+                remoteAudio.id = `audio_${targetSocketId}`;
+                remoteAudio.autoplay = true;
+                // Deixa o elemento invisível na UI
+                remoteAudio.style.display = 'none'; 
+                document.body.appendChild(remoteAudio);
+            }
+            remoteAudio.srcObject = event.streams[0];
+        };
+
+        if (isOfferor) {
+            pc.onnegotiationneeded = async () => {
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    socket.emit('webrtc-signal', { to: targetSocketId, signal: { sdp: pc.localDescription } });
+                } catch (e) {
+                    console.error("Erro na criação de oferta de conexão:", e);
+                }
+            };
+        }
+    }
+</script>
+</body>
+</html>
