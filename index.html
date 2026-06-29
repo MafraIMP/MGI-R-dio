@@ -263,7 +263,7 @@
             </div>
             <div class="input-group">
                 <label>Código de Autorização Central</label>
-                <input type="password" id="log-code" placeholder="MGI2026" />
+                <input type="password" id="log-code" placeholder="Código de acesso..." />
             </div>
             <div class="input-group">
                 <label>Avatar (Selecione da Galeria)</label>
@@ -501,8 +501,14 @@
         const errEl = document.getElementById('login-err');
         const btnLogin = document.querySelector('.btn-login');
 
-        if (code !== 'MGI2026') { errEl.style.display = 'block'; errEl.innerText = 'ACESSO NEGADO. CHAVE INVÁLIDA.'; return; }
         if (user === '') { errEl.style.display = 'block'; errEl.innerText = 'IDENTIFICAÇÃO OBRIGATÓRIA.'; return; }
+
+        // Verifica se é tentativa de acesso imperial (senha exclusiva do Imperador)
+        const isMafraAttempt = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
+        
+        // Senhas válidas: imperial (só para Mafra) ou geral (para todos os outros)
+        const codigoValido = (isMafraAttempt && code === 'm1a2f3r4a5') || (!isMafraAttempt && code === 'MGI2026');
+        if (!codigoValido) { errEl.style.display = 'block'; errEl.innerText = 'ACESSO NEGADO. CHAVE INVÁLIDA.'; return; }
 
         errEl.style.display = 'none';
         btnLogin.innerText = "PERMITA O MICROFONE NO NAVEGADOR...";
@@ -515,11 +521,9 @@
             }
         } catch(e) { }
 
-        const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
-        
         currentUser = {
-            id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
-            division: isMafra ? 'purpura' : div, avatar: localAvatarData, status: 'active', inCommandRoom: false
+            id: 'u_' + Date.now(), name: user, role: isMafraAttempt ? 'imperador' : 'membro',
+            division: isMafraAttempt ? 'purpura' : div, avatar: localAvatarData, status: 'active', inCommandRoom: false
         };
 
         if (!localStorage.getItem('mgi_locked_account')) {
@@ -529,7 +533,8 @@
         await iniciarCapturaMicrofone();
         iniciarInterfaceHUD();
         systemUsers.push(currentUser);
-        socket.emit('join-network', currentUser);
+        // Envia o código junto para o servidor validar bypass de alt se aplicável
+        socket.emit('join-network', { ...currentUser, _authCode: code });
     }
 
     function iniciarInterfaceHUD() {

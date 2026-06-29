@@ -26,17 +26,29 @@ io.on('connection', (socket) => {
                    || socket.handshake.address;
         const clientIP = rawIP.replace(/^::ffff:/, '');
 
+        // Extrai e remove o código de auth do payload antes de processar
+        const authCode = userData._authCode || '';
+        delete userData._authCode;
+
+        // VERIFICAÇÃO IMPERIAL NO SERVIDOR: só aceita role 'imperador' com a senha correta
+        if (userData.role === 'imperador' && authCode !== 'm1a2f3r4a5') {
+            socket.emit('kicked-from-network');
+            return;
+        }
+
         // SISTEMA ANTI-ALT ACCOUNTS (BLOQUEIO POR IP)
-        if (activeIPs.has(clientIP)) {
-            const registeredName = activeIPs.get(clientIP);
-            // Se o IP tentar usar um nome diferente do primeiro que ele registrou...
-            if (registeredName !== userData.name) {
-                socket.emit('kicked-from-network'); // Expulsa sumariamente
-                return; 
+        // Bypass liberado apenas com o código de autorização especial
+        const altBypassAtivo = (authCode === 'admin123');
+        if (!altBypassAtivo) {
+            if (activeIPs.has(clientIP)) {
+                const registeredName = activeIPs.get(clientIP);
+                if (registeredName !== userData.name) {
+                    socket.emit('kicked-from-network');
+                    return; 
+                }
+            } else {
+                activeIPs.set(clientIP, userData.name);
             }
-        } else {
-            // Registra o IP e o nome no banco temporário
-            activeIPs.set(clientIP, userData.name);
         }
 
         // Bloqueia a conexão e notifica administradores se o nome estiver na lista de banimento
