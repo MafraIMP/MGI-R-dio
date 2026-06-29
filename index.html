@@ -767,7 +767,7 @@ pc.ontrack = (event) => {
     if (remoteAudio.srcObject !== event.streams[0]) {
         remoteAudio.srcObject = event.streams[0];
         
-        // Força a reprodução violando regras passivas de navegador
+        // Força a reprodução violando regras passivas de navegador.
         let playPromise = remoteAudio.play();
         if (playPromise !== undefined) {
             playPromise.catch(e => {
