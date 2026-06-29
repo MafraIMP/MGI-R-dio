@@ -1254,6 +1254,21 @@
             };
         }
     }
+
+    // RECONEXÃO AUTOMÁTICA DE SINAL (ANTI-FANTASMA)
+    socket.on('connect', () => {
+        // Se o currentUser já existe, significa que foi uma queda de conexão e ele está voltando
+        if (currentUser) {
+            // Limpa as rotas WebRTC mortas antigas
+            for (let id in peerConnections) {
+                if (peerConnections[id]) peerConnections[id].close();
+            }
+            peerConnections = {};
+            
+            // Re-emite o ingresso na rede para o servidor atualizar o Socket ID e avisar a todos
+            socket.emit('join-network', currentUser);
+        }
+    });
 </script>
 </body>
 </html>

@@ -15,11 +15,28 @@ let bannedIdentities = []; // Lista de banimentos por nome armazenada no servido
 let isDecentralizedGlobal = false;
 let isMafraOverrideActive = false; 
 let currentMafraTargetDivision = null;
+let currentMGIStatusGlobal = "4-7 (Pacificação)";
+const activeIPs = new Map();
 
 io.on('connection', (socket) => {
     console.log(`[M.G.I NEXUS] Agente conectado ao terminal: ${socket.id}`);
 
     socket.on('join-network', (userData) => {
+        const clientIP = socket.handshake.address;
+
+        // SISTEMA ANTI-ALT ACCOUNTS (BLOQUEIO POR IP)
+        if (activeIPs.has(clientIP)) {
+            const registeredName = activeIPs.get(clientIP);
+            // Se o IP tentar usar um nome diferente do primeiro que ele registrou...
+            if (registeredName !== userData.name) {
+                socket.emit('kicked-from-network'); // Expulsa sumariamente
+                return; 
+            }
+        } else {
+            // Registra o IP e o nome no banco temporário
+            activeIPs.set(clientIP, userData.name);
+        }
+
         // Bloqueia a conexão e notifica administradores se o nome estiver na lista de banimento
         if (bannedIdentities.includes(userData.name)) {
             socket.emit('banned-from-network-lock');
@@ -34,9 +51,15 @@ io.on('connection', (socket) => {
         socket.emit('network-users', connectedUsers, {
             decentralized: isDecentralizedGlobal,
             override: isMafraOverrideActive,
-            mafraTargetDivision: currentMafraTargetDivision
+            mafraTargetDivision: currentMafraTargetDivision,
+            mgiStatus: currentMGIStatusGlobal // <-- LINHA ADICIONADA AQUI
         });
         socket.broadcast.emit('user-joined', userData);
+    });
+
+    socket.on('mgi-status-change', (newStatus) => {
+        currentMGIStatusGlobal = newStatus;
+        socket.broadcast.emit('mgi-status-broadcast', newStatus);
     });
 
     socket.on('unban-user-request', (name) => {
