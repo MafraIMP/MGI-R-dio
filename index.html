@@ -294,26 +294,31 @@
     });
 
     async function executarLogin() {
-        const user = document.getElementById('log-user').value.trim();
-        const code = document.getElementById('log-code').value;
-        const div = document.getElementById('log-div').value;
+    const user = document.getElementById('log-user').value.trim();
+    const code = document.getElementById('log-code').value;
+    const div = document.getElementById('log-div').value;
 
-        if (code !== 'MGI2026') { document.getElementById('login-err').style.display = 'block'; return; }
-        if (user === '') return;
+    if (code !== 'MGI2026') { document.getElementById('login-err').style.display = 'block'; return; }
+    if (user === '') return;
 
-        const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
-        
-        currentUser = {
-            id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
-            division: isMafra ? 'roxo' : div, avatar: localAvatarData, status: 'active'
-        };
+    // CORREÇÃO CRÍTICA: Desbloqueia a placa de áudio do navegador forçadamente no momento do clique.
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const tempCtx = new AudioContext();
+    await tempCtx.resume();
 
-        await iniciarCapturaMicrofone(); 
-        iniciarInterfaceHUD();
+    const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
+    
+    currentUser = {
+        id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
+        division: isMafra ? 'roxo' : div, avatar: localAvatarData, status: 'active'
+    };
 
-        systemUsers.push(currentUser);
-        socket.emit('join-network', currentUser);
-    }
+    await iniciarCapturaMicrofone(); 
+    iniciarInterfaceHUD();
+
+    systemUsers.push(currentUser);
+    socket.emit('join-network', currentUser);
+}
 
     function iniciarInterfaceHUD() { /* ... Mantenha igual ao original ... */ 
         document.getElementById('login-overlay').style.display = 'none';
@@ -459,47 +464,43 @@
 
     // APRIMORAMENTO 3: Lógica Hierárquica Estrita de Isolamento (Centralização Consertada)
     function enforceAudioRouting() {
-        systemUsers.forEach(u => {
-            if (u.id === currentUser.id || !u.socketId) return;
-            const audioEl = document.getElementById(`audio_${u.socketId}`);
-            if (audioEl) {
-                if (currentUser.status === 'banned' || u.status === 'banned' || u.status === 'kicked') {
-                    audioEl.muted = true; return;
-                }
-                
-                if (isDecentralized) {
-                    audioEl.muted = false; return;
-                }
-
-                let canHear = false;
-
-                // 1. Regra Absoluta do Imperador (Override)
-                if (isMafraOverrideActive) {
-                    if (u.role === 'imperador') canHear = true; // Todos ouvem o Imperador
-                    if (currentUser.role === 'imperador') canHear = true; // Imperador ouve todos (opcional, ou falso se quiser só falar)
-                } 
-                // 2. Operação Normal Centralizada
-                else {
-                    if (currentUser.role === 'imperador') {
-                        // Imperador ouve apenas os Líderes em estado normal
-                        if (u.role === 'lider') canHear = true;
-                    } 
-                    else if (currentUser.role === 'lider') {
-                        // Líder ouve sua própria divisão + Imperador
-                        if (u.division === currentUser.division || u.role === 'imperador') canHear = true;
-                        // Líder ouve outros Líderes APENAS se estiverem usando o PTT
-                        if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
-                    } 
-                    else if (currentUser.role === 'membro') {
-                        // Membro ouve apenas sua Divisão + Imperador
-                        if (u.division === currentUser.division || u.role === 'imperador') canHear = true;
-                    }
-                }
-
-                audioEl.muted = !canHear;
+    systemUsers.forEach(u => {
+        if (u.id === currentUser.id || !u.socketId) return;
+        const audioEl = document.getElementById(`audio_${u.socketId}`);
+        
+        if (audioEl) {
+            // 1. Punições (Prioridade Absoluta)
+            if (currentUser.status === 'banned' || u.status === 'banned' || u.status === 'kicked') {
+                audioEl.muted = true; return;
             }
-        });
-    }
+            
+            // 2. DESCENTRALIZADO (Global)
+            if (isDecentralized) {
+                audioEl.muted = false; return;
+            }
+
+            let canHear = false;
+
+            // 3. Regras de Filtro
+            if (currentUser.role === 'imperador') {
+                // Mafra escuta Púrpura...
+                if (u.division === 'purpura') canHear = true;
+                // ...E escuta qualquer Líder que esteja usando PTT
+                if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
+            } else {
+                // Membros e Líderes escutam APENAS sua divisão
+                if (u.division === currentUser.division) canHear = true;
+            }
+
+            // 4. Sobreposição Mafra (Override)
+            if (isMafraOverrideActive && u.role === 'imperador') {
+                canHear = true;
+            }
+
+            audioEl.muted = !canHear;
+        }
+    });
+}
 
     function startPTTLideres() {
         if(currentUser.role !== 'lider') return;
@@ -689,24 +690,14 @@
     });
 
     socket.on('leader-ptt-activated', (socketId) => {
-        activeLeaderPTTs.add(socketId);
-        let targetUser = systemUsers.find(u => u.socketId === socketId);
-        if (targetUser) {
-            const node = document.getElementById(`node_${targetUser.id}`);
-            if (node) node.style.boxShadow = '0 0 25px var(--success)';
-        }
-        enforceAudioRouting();
-    });
+    activeLeaderPTTs.add(socketId);
+    enforceAudioRouting(); // Refaz o cálculo de quem ouve quem imediatamente
+});
 
-    socket.on('leader-ptt-deactivated', (socketId) => {
-        activeLeaderPTTs.delete(socketId);
-        let targetUser = systemUsers.find(u => u.socketId === socketId);
-        if (targetUser) {
-            const node = document.getElementById(`node_${targetUser.id}`);
-            if (node) node.style.boxShadow = '';
-        }
-        enforceAudioRouting();
-    });
+   socket.on('leader-ptt-deactivated', (socketId) => {
+    activeLeaderPTTs.delete(socketId);
+    enforceAudioRouting(); // Refaz o cálculo de quem ouve quem imediatamente
+});
 
     // RECEPTORES DE OVERRIDE DO SERVIDOR
     socket.on('mafra-override-activated', () => { isMafraOverrideActive = true; enforceAudioRouting(); });
@@ -749,26 +740,32 @@
             if (event.candidate) { socket.emit('webrtc-signal', { to: targetSocketId, signal: { candidate: event.candidate } }); }
         };
 
-        pc.ontrack = (event) => {
-            let remoteAudio = document.getElementById(`audio_${targetSocketId}`);
-            if (!remoteAudio) {
-                remoteAudio = document.createElement('audio');
-                remoteAudio.id = `audio_${targetSocketId}`;
-                remoteAudio.autoplay = true; remoteAudio.style.display = 'none'; 
-                document.body.appendChild(remoteAudio);
-            }
-            remoteAudio.srcObject = event.streams[0];
-            remoteAudio.play().catch(e => console.log("Aguardando interação do DOM para reproduzir o áudio."));
-            enforceAudioRouting(); 
-        };
-
-        if (isOfferor) {
-            pc.onnegotiationneeded = async () => {
-                try {
-                    const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
-                    socket.emit('webrtc-signal', { to: targetSocketId, signal: { sdp: pc.localDescription } });
-                } catch (e) { console.error("Erro na oferta:", e); }
-            };
+pc.ontrack = (event) => {
+    let remoteAudio = document.getElementById(`audio_${targetSocketId}`);
+    if (!remoteAudio) {
+        remoteAudio = document.createElement('audio');
+        remoteAudio.id = `audio_${targetSocketId}`;
+        remoteAudio.autoplay = true; 
+        remoteAudio.playsInline = true; // Evita que o áudio seja bloqueado em background
+        remoteAudio.style.display = 'none'; 
+        document.body.appendChild(remoteAudio);
+    }
+    
+    // Anexa o stream apenas se for novo (evita engasgos infinitos)
+    if (remoteAudio.srcObject !== event.streams[0]) {
+        remoteAudio.srcObject = event.streams[0];
+        
+        // Força a reprodução violando regras passivas de navegador
+        let playPromise = remoteAudio.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(e => {
+                console.warn("[MGI] Autoplay negado pelo sistema, mas o override forçará a conexão.");
+            });
+        }
+    }
+    
+    enforceAudioRouting(); 
+};
         }
     }
 </script>
