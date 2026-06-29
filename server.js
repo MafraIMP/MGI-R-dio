@@ -22,7 +22,9 @@ io.on('connection', (socket) => {
     console.log(`[M.G.I NEXUS] Agente conectado ao terminal: ${socket.id}`);
 
     socket.on('join-network', (userData) => {
-        const clientIP = socket.handshake.address;
+        const rawIP = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim()
+                   || socket.handshake.address;
+        const clientIP = rawIP.replace(/^::ffff:/, '');
 
         // SISTEMA ANTI-ALT ACCOUNTS (BLOQUEIO POR IP)
         if (activeIPs.has(clientIP)) {
@@ -134,8 +136,20 @@ io.on('connection', (socket) => {
                     targetSocket.emit('kicked-from-network');
                     targetSocket.disconnect();
                 }
+                // Libera o IP do mapa para permitir reentrada futura
+                for (let [ip, name] of activeIPs.entries()) {
+                    if (name === user.name) { activeIPs.delete(ip); break; }
+                }
                 connectedUsers = connectedUsers.filter(u => u.id !== targetId);
             }
+        }
+    });
+
+    socket.on('toggle-command-room', (inCommandRoom) => {
+        const user = connectedUsers.find(u => u.socketId === socket.id);
+        if (user) {
+            user.inCommandRoom = inCommandRoom;
+            socket.broadcast.emit('user-command-room-updated', { socketId: socket.id, inCommandRoom });
         }
     });
 
