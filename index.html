@@ -273,7 +273,7 @@
     
     let isDecentralized = false;
     let isSelfMuted = false;
-    let isMafraOverrideActive = false; // Estado do Override
+    let isMafraOverrideActive = false;
     let localAvatarData = '';
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
@@ -294,39 +294,36 @@
     });
 
     async function executarLogin() {
-    const user = document.getElementById('log-user').value.trim();
-    const code = document.getElementById('log-code').value;
-    const div = document.getElementById('log-div').value;
-    const errEl = document.getElementById('login-err');
+        const user = document.getElementById('log-user').value.trim();
+        const code = document.getElementById('log-code').value;
+        const div = document.getElementById('log-div').value;
+        const errEl = document.getElementById('login-err');
 
-    if (code !== 'MGI2026') { errEl.style.display = 'block'; errEl.innerText = 'ACESSO NEGADO. CHAVE INVÁLIDA.'; return; }
-    if (user === '') { errEl.style.display = 'block'; errEl.innerText = 'IDENTIFICAÇÃO OBRIGATÓRIA.'; return; }
+        if (code !== 'MGI2026') { errEl.style.display = 'block'; errEl.innerText = 'ACESSO NEGADO. CHAVE INVÁLIDA.'; return; }
+        if (user === '') { errEl.style.display = 'block'; errEl.innerText = 'IDENTIFICAÇÃO OBRIGATÓRIA.'; return; }
 
-    errEl.style.display = 'none';
+        errEl.style.display = 'none';
 
-    // Desbloqueia a placa de áudio do navegador forçadamente no momento do clique.
-    try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const tempCtx = new AudioContext();
-        await tempCtx.resume();
-    } catch(e) { /* ignora se não suportado */ }
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            const tempCtx = new AudioContext();
+            await tempCtx.resume();
+        } catch(e) { /* ignora se não suportado */ }
 
-    const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
-    
-    currentUser = {
-        id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
-        division: isMafra ? 'roxo' : div, avatar: localAvatarData, status: 'active'
-    };
+        const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
+        
+        currentUser = {
+            id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
+            division: isMafra ? 'roxo' : div, avatar: localAvatarData, status: 'active'
+        };
 
-    // Microfone: tenta capturar, mas não bloqueia o login se negar
-    await iniciarCapturaMicrofone();
+        await iniciarCapturaMicrofone();
+        iniciarInterfaceHUD();
+        systemUsers.push(currentUser);
+        socket.emit('join-network', currentUser);
+    }
 
-    iniciarInterfaceHUD();
-    systemUsers.push(currentUser);
-    socket.emit('join-network', currentUser);
-}
-
-    function iniciarInterfaceHUD() { /* ... Mantenha igual ao original ... */ 
+    function iniciarInterfaceHUD() {
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('map-container').style.display = 'block';
         document.getElementById('bottom-hud').style.display = 'flex';
@@ -340,7 +337,7 @@
         updateHUDButtons(); updateCommsStatusText(); renderTopology(); renderAdminPanel();
     }
 
-    function updateHUDButtons() { /* ... Mantenha igual ao original ... */ 
+    function updateHUDButtons() {
         if(!currentUser) return;
         const color = divisionColors[currentUser.division];
         document.getElementById('hud-role').innerText = `${currentUser.role.toUpperCase()} // DIV ${currentUser.division.toUpperCase()}`;
@@ -362,7 +359,7 @@
         }
     }
 
-    function updateCommsStatusText() { /* ... Mantenha igual ao original ... */ 
+    function updateCommsStatusText() {
         if(!currentUser) return;
         if(currentUser.role === 'imperador') {
             document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">Monitoramento Global Ativado.</span>`;
@@ -382,7 +379,6 @@
         }
     }
 
-    // Captura de microfone: se negado, entra sem áudio (não bloqueia o login)
     async function iniciarCapturaMicrofone() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -403,7 +399,6 @@
             function checarVolume() {
                 requestAnimationFrame(checarVolume);
                 
-                // APRIMORAMENTO 2: Banimento corta captura física de hardware
                 if (isSelfMuted || currentUser.status === 'banned') {
                     if (localStream.getAudioTracks().length > 0) localStream.getAudioTracks()[0].enabled = false;
                     document.getElementById('vad-status').innerText = 'MUTED';
@@ -447,11 +442,10 @@
             console.error("Erro de Microfone:", err);
             const vadEl = document.getElementById('vad-status');
             if (vadEl) { vadEl.innerText = 'SEM MIC'; vadEl.style.color = 'orange'; }
-            // Entra sem microfone — não bloqueia o login
         }
     }
 
-    function toggleSelfMute() { /* ... Mantenha igual ... */ 
+    function toggleSelfMute() {
         isSelfMuted = !isSelfMuted;
         const btn = document.getElementById('btn-mute-self');
         const node = document.getElementById(`node_${currentUser.id}`);
@@ -470,58 +464,50 @@
         }
     }
 
-    // APRIMORAMENTO 3: Lógica Hierárquica Estrita de Isolamento (Centralização Consertada)
     function enforceAudioRouting() {
-    systemUsers.forEach(u => {
-        if (u.id === currentUser.id || !u.socketId) return;
-        const audioEl = document.getElementById(`audio_${u.socketId}`);
-        
-        if (audioEl) {
-            // 1. Punições (Prioridade Absoluta)
-            if (currentUser.status === 'banned' || u.status === 'banned' || u.status === 'kicked') {
-                audioEl.muted = true; return;
-            }
+        systemUsers.forEach(u => {
+            if (u.id === currentUser.id || !u.socketId) return;
+            const audioEl = document.getElementById(`audio_${u.socketId}`);
             
-            // 2. DESCENTRALIZADO (Global)
-            if (isDecentralized) {
-                audioEl.muted = false; return;
+            if (audioEl) {
+                if (currentUser.status === 'banned' || u.status === 'banned' || u.status === 'kicked') {
+                    audioEl.muted = true; return;
+                }
+                
+                if (isDecentralized) {
+                    audioEl.muted = false; return;
+                }
+
+                let canHear = false;
+
+                if (currentUser.role === 'imperador') {
+                    if (u.division === 'purpura') canHear = true;
+                    if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
+                } else {
+                    if (u.division === currentUser.division) canHear = true;
+                }
+
+                if (isMafraOverrideActive && u.role === 'imperador') {
+                    canHear = true;
+                }
+
+                audioEl.muted = !canHear;
             }
-
-            let canHear = false;
-
-            // 3. Regras de Filtro
-            if (currentUser.role === 'imperador') {
-                // Mafra escuta Púrpura...
-                if (u.division === 'purpura') canHear = true;
-                // ...E escuta qualquer Líder que esteja usando PTT
-                if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
-            } else {
-                // Membros e Líderes escutam APENAS sua divisão
-                if (u.division === currentUser.division) canHear = true;
-            }
-
-            // 4. Sobreposição Mafra (Override)
-            if (isMafraOverrideActive && u.role === 'imperador') {
-                canHear = true;
-            }
-
-            audioEl.muted = !canHear;
-        }
-    });
-}
+        });
+    }
 
     function startPTTLideres() {
         if(currentUser.role !== 'lider') return;
         document.getElementById('btn-ptt-lideres').classList.add('active-state');
         socket.emit('leader-ptt-start');
     }
+
     function stopPTTLideres() {
         if(currentUser.role !== 'lider') return;
         document.getElementById('btn-ptt-lideres').classList.remove('active-state');
         socket.emit('leader-ptt-stop');
     }
 
-    // APRIMORAMENTO 4: Sistema de Override Global MafraINF Acoplado
     function startPTTMafra() {
         document.getElementById('btn-ptt-mafra').classList.add('active-state');
         document.getElementById('global-override-ui').style.display = 'block';
@@ -529,6 +515,7 @@
         isMafraOverrideActive = true;
         enforceAudioRouting();
     }
+
     function stopPTTMafra() {
         document.getElementById('btn-ptt-mafra').classList.remove('active-state');
         document.getElementById('global-override-ui').style.display = 'none';
@@ -537,7 +524,10 @@
         enforceAudioRouting();
     }
 
-    function toggleAdminPanel() { /* ... Mantenha igual ... */ document.getElementById('admin-panel').classList.toggle('open'); renderAdminPanel(); }
+    function toggleAdminPanel() { 
+        document.getElementById('admin-panel').classList.toggle('open'); 
+        renderAdminPanel(); 
+    }
 
     function toggleDecentralize(fromServer, forceStatus) {
         if (fromServer === 'fromServer' && forceStatus !== undefined) {
@@ -564,8 +554,7 @@
         }
     }
 
-    // (As funções renderTopology, createNodeHTML, renderAdminPanel, admAction permanecem estritamente iguais à sua Source original)
-    function renderTopology() { /* ... Mantenha o código HTML de renderização igual ... */ 
+    function renderTopology() { 
         const root = document.getElementById('topology-root');
         root.innerHTML = '';
         const mafraUser = systemUsers.find(u => u.role === 'imperador');
@@ -604,7 +593,7 @@
         enforceAudioRouting();
     }
 
-    function createNodeHTML(user) { /* ... Mantenha igual ... */ 
+    function createNodeHTML(user) { 
         let extraClass = '';
         if (user.status === 'banned') extraClass += ' banned';
         let bg = user.avatar ? `background-image: url('${user.avatar}');` : '';
@@ -614,7 +603,7 @@
         return `<div class="node ${extraClass}" id="node_${user.id}" style="${bg}">${icon}</div><div class="node-name">${user.name}</div>`;
     }
 
-    function renderAdminPanel() { /* ... Mantenha igual ... */ 
+    function renderAdminPanel() { 
         if(currentUser?.role !== 'imperador') return;
         const list = document.getElementById('admin-user-list'); list.innerHTML = '';
         systemUsers.forEach(u => {
@@ -633,7 +622,7 @@
         });
     }
 
-    function admAction(id, action, fromServer) { /* ... Mantenha igual ... */ 
+    function admAction(id, action, fromServer) { 
         const user = systemUsers.find(u => u.id === id); if(!user) return;
         if (action === 'role') {
             if (user.role === 'membro') {
@@ -651,15 +640,14 @@
         if (fromServer !== 'fromServer') { socket.emit('admin-action-execute', { targetId: id, action: action }); }
     }
 
-    // APRIMORAMENTO 5: Expulsão corta a mídia fisicamente e aciona Tela Preta brutal
     socket.on('kicked-from-network', () => {
-        if(localStream) { localStream.getTracks().forEach(track => track.stop()); } // Desliga câmera/microfone fisicamente
+        if(localStream) { localStream.getTracks().forEach(track => track.stop()); } 
         document.body.innerHTML = `
             <div style="background-color: black; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; width: 100vw; font-family: 'Space Mono', monospace; font-size: 2rem; text-transform: uppercase; letter-spacing: 2px;">
                 Sua conexão foi cortada!
             </div>
         `;
-        setTimeout(() => location.reload(), 3500); // Retorna ao Início após punição visual
+        setTimeout(() => location.reload(), 3500);
     });
 
     socket.on('network-users', (serverUsers, serverState) => {
@@ -679,13 +667,13 @@
         });
     });
 
-    socket.on('user-joined', (newUser) => { /* ... Mantenha igual ... */ 
+    socket.on('user-joined', (newUser) => { 
         let exists = systemUsers.find(u => u.id === newUser.id);
         if (!exists) systemUsers.push(newUser); else Object.assign(exists, newUser);
         renderTopology(); renderAdminPanel();
     });
 
-    socket.on('user-left', (socketId) => { /* ... Mantenha igual ... */ 
+    socket.on('user-left', (socketId) => { 
         systemUsers = systemUsers.filter(u => u.socketId !== socketId);
         if (peerConnections[socketId]) { peerConnections[socketId].close(); delete peerConnections[socketId]; }
         const audioEl = document.getElementById(`audio_${socketId}`); if(audioEl) audioEl.remove();
@@ -693,7 +681,7 @@
         renderTopology(); renderAdminPanel();
     });
 
-    socket.on('user-voice-state', ({ socketId, isSpeaking }) => { /* ... Mantenha igual ... */ 
+    socket.on('user-voice-state', ({ socketId, isSpeaking }) => { 
         let targetUser = systemUsers.find(u => u.socketId === socketId);
         if (targetUser) {
             const targetNode = document.getElementById(`node_${targetUser.id}`);
@@ -702,16 +690,15 @@
     });
 
     socket.on('leader-ptt-activated', (socketId) => {
-    activeLeaderPTTs.add(socketId);
-    enforceAudioRouting(); // Refaz o cálculo de quem ouve quem imediatamente
-});
+        activeLeaderPTTs.add(socketId);
+        enforceAudioRouting(); 
+    });
 
-   socket.on('leader-ptt-deactivated', (socketId) => {
-    activeLeaderPTTs.delete(socketId);
-    enforceAudioRouting(); // Refaz o cálculo de quem ouve quem imediatamente
-});
+    socket.on('leader-ptt-deactivated', (socketId) => {
+        activeLeaderPTTs.delete(socketId);
+        enforceAudioRouting(); 
+    });
 
-    // RECEPTORES DE OVERRIDE DO SERVIDOR
     socket.on('mafra-override-activated', () => { isMafraOverrideActive = true; enforceAudioRouting(); });
     socket.on('mafra-override-deactivated', () => { isMafraOverrideActive = false; enforceAudioRouting(); });
 
@@ -752,32 +739,41 @@
             if (event.candidate) { socket.emit('webrtc-signal', { to: targetSocketId, signal: { candidate: event.candidate } }); }
         };
 
-pc.ontrack = (event) => {
-    let remoteAudio = document.getElementById(`audio_${targetSocketId}`);
-    if (!remoteAudio) {
-        remoteAudio = document.createElement('audio');
-        remoteAudio.id = `audio_${targetSocketId}`;
-        remoteAudio.autoplay = true; 
-        remoteAudio.playsInline = true; // Evita que o áudio seja bloqueado em background
-        remoteAudio.style.display = 'none'; 
-        document.body.appendChild(remoteAudio);
-    }
-    
-    // Anexa o stream apenas se for novo (evita engasgos infinitos)
-    if (remoteAudio.srcObject !== event.streams[0]) {
-        remoteAudio.srcObject = event.streams[0];
-        
-        // Força a reprodução violando regras passivas de navegador.
-        let playPromise = remoteAudio.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(e => {
-                console.warn("[MGI] Autoplay negado pelo sistema, mas o override forçará a conexão.");
-            });
-        }
-    }
-    
-    enforceAudioRouting(); 
-};
+        pc.ontrack = (event) => {
+            let remoteAudio = document.getElementById(`audio_${targetSocketId}`);
+            if (!remoteAudio) {
+                remoteAudio = document.createElement('audio');
+                remoteAudio.id = `audio_${targetSocketId}`;
+                remoteAudio.autoplay = true; 
+                remoteAudio.playsInline = true; 
+                remoteAudio.style.display = 'none'; 
+                document.body.appendChild(remoteAudio);
+            }
+            
+            if (remoteAudio.srcObject !== event.streams[0]) {
+                remoteAudio.srcObject = event.streams[0];
+                
+                let playPromise = remoteAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(e => {
+                        console.warn("[MGI] Autoplay negado pelo sistema, mas o override forçará a conexão.");
+                    });
+                }
+            }
+            
+            enforceAudioRouting(); 
+        };
+
+        if (isOfferor) {
+            pc.onnegotiationneeded = async () => {
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    socket.emit('webrtc-signal', { to: targetSocketId, signal: { sdp: pc.localDescription } });
+                } catch (e) {
+                    console.error("Erro na oferta:", e);
+                }
+            };
         }
     }
 </script>
