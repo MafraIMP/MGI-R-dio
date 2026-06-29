@@ -74,6 +74,41 @@
         }
         .btn-login:hover { background: var(--mafra); color: #fff; box-shadow: 0 0 30px rgba(176,38,255,0.4); }
 
+        /* PAINEL DE STATUS GERAL */
+        #status-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--panel-bg);
+            border: 1px solid var(--mafra);
+            box-shadow: 0 0 20px rgba(176,38,255,0.2);
+            padding: 15px 25px;
+            z-index: 1000;
+            text-align: right;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+        .status-title {
+            font-family: var(--font-ui);
+            font-size: 0.7rem;
+            color: #888;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+        }
+        .status-current {
+            font-family: var(--font-display);
+            font-size: 1.6rem;
+            color: var(--mafra);
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(176,38,255,0.5);
+            text-transform: uppercase;
+            transition: color 0.3s, text-shadow 0.3s;
+        }
+        .status-danger {
+            color: var(--danger) !important;
+            text-shadow: 0 0 15px var(--danger) !important;
+        }
+
         #map-container { display: none; flex: 1; overflow: auto; padding: 40px; }
         .topology-wrapper { display: flex; flex-direction: column; align-items: center; min-width: 1400px; padding-bottom: 120px; }
         
@@ -230,6 +265,12 @@
         </div>
     </div>
 
+    <!-- PAINEL DE STATUS -->
+    <div id="status-panel">
+        <div class="status-title">STATUS DA MISSÃO</div>
+        <div class="status-current" id="current-status-display">4-7 (Pacificação)</div>
+    </div>
+
     <!-- ABAS LATERAIS -->
     <div id="chat-panel">
         <div class="chat-header">
@@ -248,7 +289,28 @@
             <h2><i class="fa-solid fa-chess-king"></i> COMANDO CENTRAL</h2>
             <i class="fa-solid fa-xmark close-admin" onclick="toggleAdminPanel()"></i>
         </div>
-        <div class="admin-body" id="admin-user-list"></div>
+        <div class="admin-body">
+            <!-- BLOCO DE STATUS GERAL -->
+            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #333;">
+                <label style="color:var(--mafra); font-family:var(--font-ui); font-size:0.8rem; display:block; margin-bottom:5px;">ALTERAR STATUS GLOBAL</label>
+                <select id="status-selector" style="width:100%; background:#000; color:#fff; border:1px solid var(--mafra); padding:8px; font-family:var(--font-ui);" onchange="changeGlobalStatus(this.value)">
+                    <optgroup label="Ações">
+                        <option value="4-0 (Aniquilação)">4-0 (Aniquilação)</option>
+                        <option value="4-1 (Extermínio)">4-1 (Extermínio)</option>
+                        <option value="4-2 (Supressão)">4-2 (Supressão)</option>
+                    </optgroup>
+                    <optgroup label="Cenários">
+                        <option value="4-3 (Contenção)">4-3 (Contenção)</option>
+                        <option value="4-4 (Vigilância)">4-4 (Vigilância)</option>
+                        <option value="4-5 (Intervenção)">4-5 (Intervenção)</option>
+                        <option value="4-6 (Observação)">4-6 (Observação)</option>
+                        <option value="4-7 (Pacificação)" selected>4-7 (Pacificação)</option>
+                    </optgroup>
+                </select>
+            </div>
+            <!-- LISTA DE USUÁRIOS -->
+            <div id="admin-user-list"></div>
+        </div>
         <div class="admin-footer">
             <button class="btn" id="btn-decentralize" style="width: 100%; justify-content: center; border-color: var(--success); color: var(--success);" onclick="toggleDecentralize()">
                 <i class="fa-solid fa-earth-americas"></i> DESCENTRALIZAR REDE
@@ -283,6 +345,10 @@
 
                 <button class="btn" id="btn-ptt-lideres" onmousedown="startPTTLideres()" onmouseup="stopPTTLideres()" onmouseleave="stopPTTLideres()" style="display:none; color: var(--success); border-color: var(--success);">
                     <i class="fa-solid fa-radio"></i> PTT LÍDERES
+                </button>
+
+                <button class="btn" id="btn-call-lideres" onclick="toggleLeaderCall()" style="display:none; color: var(--amarelo); border-color: var(--amarelo);">
+                    <i class="fa-solid fa-headset"></i> SALA COMANDO
                 </button>
 
                 <button class="btn" id="btn-ptt-mafra" onmousedown="startPTTMafra()" onmouseup="stopPTTMafra()" onmouseleave="stopPTTMafra()" style="display:none; color: var(--mafra);">
@@ -327,6 +393,8 @@
     let isMafraOverrideActive = false;
     let activeMafraTargetDivision = null; 
     let localAvatarData = '';
+    let inCommandRoom = false;
+    let currentMGIStatus = "4-7 (Pacificação)";
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
 
@@ -438,7 +506,7 @@
         
         currentUser = {
             id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
-            division: isMafra ? 'purpura' : div, avatar: localAvatarData, status: 'active'
+            division: isMafra ? 'purpura' : div, avatar: localAvatarData, status: 'active', inCommandRoom: false
         };
 
         // LOCK THE BROWSER PORT TO THIS INSTANCE FOREVER (ANTI-300x ACCOUNTS)
@@ -474,14 +542,17 @@
         document.getElementById('btn-open-admin').style.display = 'none';
         document.getElementById('btn-mute-self').style.display = 'none';
         document.getElementById('btn-ptt-lideres').style.display = 'none';
+        document.getElementById('btn-call-lideres').style.display = 'none';
 
         if (currentUser.role === 'imperador') {
             document.getElementById('btn-ptt-mafra').style.display = 'inline-flex';
             document.getElementById('btn-open-admin').style.display = 'inline-flex';
+            document.getElementById('btn-call-lideres').style.display = 'inline-flex';
         } else if (currentUser.role === 'lider') {
             document.getElementById('btn-mute-self').style.display = 'inline-flex';
             document.getElementById('btn-mute-self').style.color = color;
             document.getElementById('btn-ptt-lideres').style.display = 'inline-flex';
+            document.getElementById('btn-call-lideres').style.display = 'inline-flex';
         } else {
             document.getElementById('btn-mute-self').style.display = 'inline-flex';
             document.getElementById('btn-mute-self').style.color = color;
@@ -490,18 +561,24 @@
 
     function updateCommsStatusText() {
         if(!currentUser) return;
+        const statusText = document.getElementById('comms-status-text');
+
+        if(inCommandRoom) {
+            statusText.innerHTML = `<span style="color:var(--amarelo)"><i class="fa-solid fa-lock"></i> SALA DE COMANDO</span><br><span style="color:#666">Isolamento Ativo</span>`;
+            return;
+        }
+
         if(currentUser.role === 'imperador') {
             let desc = "Monitoramento Global Ativado.";
             if (activeMafraTargetDivision) desc = `FOCADO EXCLUSIVAMENTE NA DIVISÃO ${activeMafraTargetDivision.toUpperCase()}`;
-            document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">${desc}</span>`;
+            statusText.innerHTML = `<span style="color:var(--mafra)">AUTORIDADE SUPREMA</span><br><span style="color:#666">${desc}</span>`;
             return;
         }
         if(currentUser.status === 'banned') {
-            document.getElementById('comms-status-text').innerHTML = `<span style="color:var(--danger)">CONEXÃO RESTRITA</span><br><span style="color:var(--danger)">Você foi BANIDO pelo comando.</span>`;
+            statusText.innerHTML = `<span style="color:var(--danger)">CONEXÃO RESTRITA</span><br><span style="color:var(--danger)">Você foi BANIDO pelo comando.</span>`;
             return;
         }
         const color = divisionColors[currentUser.division];
-        const statusText = document.getElementById('comms-status-text');
         
         if (isDecentralized) {
             statusText.innerHTML = `VAD ATIVO <br> <span style="color:#666">Rede Descentralizada:</span> <span class="comms-highlight" style="color:var(--success)">CANAL GLOBAL ABERTO</span>`;
@@ -510,6 +587,68 @@
         } else {
             statusText.innerHTML = `VAD ATIVO <br> <span style="color:#666">Transmitindo para:</span> <span class="comms-highlight" style="color:${color}">ESQUADRÃO ${currentUser.division.toUpperCase()}</span>`;
         }
+    }
+
+    // --- SISTEMA DE STATUS GLOBAL E VOZ ---
+    function changeGlobalStatus(newStatus) {
+        if (currentUser.role !== 'imperador') return;
+        socket.emit('mgi-status-change', newStatus);
+    }
+
+    function playMetroAlertAndSpeak(statusString) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            // Som de Metrô (Ding-Dong)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.4);
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
+            
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 1.0);
+        }
+
+        setTimeout(() => {
+            if (!window.speechSynthesis) return;
+            window.speechSynthesis.cancel();
+            
+            const code = statusString.split(' ')[0];
+            const utterance = new SpeechSynthesisUtterance(`Estatus da EME GÊ Í. Código ${code}.`);
+            const voices = window.speechSynthesis.getVoices();
+            
+            let maleVoice = voices.find(v => v.lang.includes('pt') && (v.name.toLowerCase().includes('daniel') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('male')));
+            if (!maleVoice) maleVoice = voices.find(v => v.lang.includes('pt'));
+            
+            if (maleVoice) utterance.voice = maleVoice;
+            utterance.pitch = 0.1; 
+            utterance.rate = 0.85; 
+            
+            window.speechSynthesis.speak(utterance);
+        }, 1200); 
+    }
+
+    function toggleLeaderCall() {
+        inCommandRoom = !inCommandRoom;
+        currentUser.inCommandRoom = inCommandRoom;
+        const btn = document.getElementById('btn-call-lideres');
+        
+        if(inCommandRoom) {
+            btn.classList.add('active-state');
+        } else {
+            btn.classList.remove('active-state');
+        }
+        
+        updateCommsStatusText();
+        socket.emit('toggle-command-room', inCommandRoom);
+        enforceAudioRouting();
+        renderTopology();
     }
 
     async function iniciarCapturaMicrofone() {
@@ -602,14 +741,13 @@
         }
     }
 
-    // EXCLUSIVE PODER DE MAFRA SELECTOR
     function mafraSelectDivision(targetDiv) {
         if (!currentUser || currentUser.role !== 'imperador') return;
         
         if (activeMafraTargetDivision === targetDiv) {
-            activeMafraTargetDivision = null; // Desliga o foco
+            activeMafraTargetDivision = null; 
         } else {
-            activeMafraTargetDivision = targetDiv; // Foca na divisão clicada
+            activeMafraTargetDivision = targetDiv; 
         }
         
         socket.emit('mafra-target-division-change', activeMafraTargetDivision);
@@ -617,7 +755,6 @@
         renderTopology();
     }
 
-    // REVISÃO RIGOROSA DA MATRIZ DE ÁUDIO
     function enforceAudioRouting() {
         systemUsers.forEach(u => {
             if (u.id === currentUser.id || !u.socketId) return;
@@ -632,38 +769,40 @@
                     audioEl.muted = false; return;
                 }
 
+                // Lógica da Sala de Comando
+                if (inCommandRoom) {
+                    audioEl.muted = !(u.inCommandRoom === true);
+                    return;
+                }
+                if (u.inCommandRoom) {
+                    audioEl.muted = true;
+                    return;
+                }
+
                 let canHear = false;
 
-                // 1. REGRAS DE OVERRIDE DO IMPERADOR (SOBREPÕE TUDO)
                 if (isMafraOverrideActive) {
                     if (currentUser.role === 'lider') {
-                        // SOMENTE os líderes escutam o Mafra, e ficam surdos para o resto do mundo
                         canHear = (u.role === 'imperador');
                     } else {
-                        // Membros e o próprio Mafra não escutam os membros comuns (audição cortada)
                         canHear = false;
                     }
                     audioEl.muted = !canHear;
                     return;
                 }
 
-                // 2. REGRA DE PODERES DE DIVISÃO DIRETA DO MAFRA
                 if (activeMafraTargetDivision) {
                     if (currentUser.role === 'imperador') {
-                        // Mafra focado escuta apenas a divisão selecionada
                         canHear = (u.division === activeMafraTargetDivision);
                     } else if (u.role === 'imperador') {
-                        // Integrantes da divisão alvo escutam o Mafra focado
                         canHear = (currentUser.division === activeMafraTargetDivision);
                     } else {
-                        // Comunicação local interna contínua normal para o resto
                         canHear = (u.division === currentUser.division);
                     }
                     audioEl.muted = !canHear;
                     return;
                 }
 
-                // 3. MATRIZ DE ROTEAMENTO EM ESTADO OPERACIONAL NORMAL
                 if (currentUser.role === 'imperador') {
                     if (u.division === 'purpura') canHear = true;
                     if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
@@ -819,6 +958,7 @@
         let icon = !user.avatar ? '<i class="fa-solid fa-user"></i>' : '';
         if(user.role === 'imperador' && !user.avatar) icon = '<i class="fa-solid fa-crown"></i>';
         if(user.role === 'lider' && !user.avatar) icon = '<i class="fa-solid fa-user-shield"></i>';
+        if(user.inCommandRoom) icon += '<i class="fa-solid fa-lock" style="position:absolute; top:-10px; right:-10px; color:var(--amarelo); font-size:1.5rem; text-shadow:0 0 5px #000; z-index:20;"></i>';
         return `<div class="node ${extraClass}" id="node_${user.id}" style="${bg}">${icon}</div><div class="node-name">${user.name}</div>`;
     }
 
@@ -887,7 +1027,6 @@
         `;
         container.scrollTop = container.scrollHeight;
         
-        // Ativa fala robótica masculina instantânea
         speakWithRobotVoice(`${data.senderName} disse: ${data.text}`);
     });
 
@@ -895,6 +1034,28 @@
         activeMafraTargetDivision = division;
         updateCommsStatusText();
         renderTopology();
+    });
+
+    socket.on('mgi-status-broadcast', (statusString) => {
+        const display = document.getElementById('current-status-display');
+        display.innerText = statusString;
+        
+        if (statusString.startsWith('4-0') || statusString.startsWith('4-1') || statusString.startsWith('4-2')) {
+            display.classList.add('status-danger');
+        } else {
+            display.classList.remove('status-danger');
+        }
+
+        playMetroAlertAndSpeak(statusString);
+    });
+
+    socket.on('user-command-room-updated', (data) => {
+        const targetUser = systemUsers.find(u => u.socketId === data.socketId);
+        if(targetUser) {
+            targetUser.inCommandRoom = data.inCommandRoom;
+            enforceAudioRouting();
+            renderTopology();
+        }
     });
 
     socket.on('network-users', (serverUsers, serverState) => {
@@ -908,6 +1069,15 @@
         if (serverState.decentralized !== isDecentralized) toggleDecentralize('fromServer', serverState.decentralized);
         if (serverState.override !== isMafraOverrideActive) { isMafraOverrideActive = serverState.override; enforceAudioRouting(); }
         activeMafraTargetDivision = serverState.mafraTargetDivision || null;
+        
+        if (serverState.mgiStatus) {
+            const display = document.getElementById('current-status-display');
+            display.innerText = serverState.mgiStatus;
+            if (serverState.mgiStatus.startsWith('4-0') || serverState.mgiStatus.startsWith('4-1') || serverState.mgiStatus.startsWith('4-2')) {
+                display.classList.add('status-danger');
+            }
+        }
+
         renderTopology(); renderAdminPanel();
 
         serverUsers.forEach(sUser => {
@@ -918,7 +1088,7 @@
     socket.on('user-joined', (newUser) => { 
         let exists = systemUsers.find(u => u.id === newUser.id);
         if (!exists) systemUsers.push(newUser); else Object.assign(exists, newUser);
-        playSystemChime('entry'); // Entrada chime
+        playSystemChime('entry'); 
         renderTopology(); renderAdminPanel();
     });
 
@@ -927,7 +1097,7 @@
         if (peerConnections[socketId]) { peerConnections[socketId].close(); delete peerConnections[socketId]; }
         const audioEl = document.getElementById(`audio_${socketId}`); if(audioEl) audioEl.remove();
         delete remoteCandidatesQueue[socketId];
-        playSystemChime('exit'); // Saída chime
+        playSystemChime('exit'); 
         renderTopology(); renderAdminPanel();
     });
 
