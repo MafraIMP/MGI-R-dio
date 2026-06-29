@@ -278,7 +278,6 @@
 
     const divisionColors = { vermelho: 'var(--vermelho)', amarelo: 'var(--amarelo)', purpura: 'var(--purpura)', cinza: 'var(--cinza)', roxo: 'var(--mafra)' };
 
-    // [MGI OVERRIDE]: Proteção à prova de falhas para o Socket.io (Se não achar o servidor, opera o HUD de forma isolada e segura)
     let socket;
     try {
         if (typeof io !== 'undefined') {
@@ -316,8 +315,6 @@
         if (user === '') { errEl.style.display = 'block'; errEl.innerText = 'IDENTIFICAÇÃO OBRIGATÓRIA.'; return; }
 
         errEl.style.display = 'none';
-        
-        // [MGI OVERRIDE]: Alerta visual para o usuário aceitar o microfone antes de prosseguir
         btnLogin.innerText = "PERMITA O MICROFONE NO NAVEGADOR...";
 
         try {
@@ -330,9 +327,10 @@
 
         const isMafra = (user.toUpperCase() === 'MAFRAINF' || user.toUpperCase() === 'MAFRA');
         
+        // BUG 3 FIX: O Mafra agora entra formalmente como Braço Púrpura no sistema.
         currentUser = {
             id: 'u_' + Date.now(), name: user, role: isMafra ? 'imperador' : 'membro',
-            division: isMafra ? 'roxo' : div, avatar: localAvatarData, status: 'active'
+            division: isMafra ? 'purpura' : div, avatar: localAvatarData, status: 'active'
         };
 
         await iniciarCapturaMicrofone();
@@ -399,7 +397,6 @@
 
     async function iniciarCapturaMicrofone() {
         try {
-            // [MGI OVERRIDE]: Proteção contra falhas de protocolo (HTTP local ou bloqueio de sistema)
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 throw new Error("Microfone bloqueado pela segurança do navegador (necessita HTTPS/Localhost).");
             }
@@ -488,6 +485,7 @@
         }
     }
 
+    // A MATRIZ DE ROTEAMENTO (REVISADA)
     function enforceAudioRouting() {
         systemUsers.forEach(u => {
             if (u.id === currentUser.id || !u.socketId) return;
@@ -504,15 +502,37 @@
 
                 let canHear = false;
 
+                // REGRAS BASE
                 if (currentUser.role === 'imperador') {
+                    // Mafra ouve a própria base (Braço Púrpura)
                     if (u.division === 'purpura') canHear = true;
+                    // Mafra ouve Líderes quando ativam PTT
                     if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
-                } else {
+                } 
+                else if (currentUser.role === 'lider') {
+                    // Líder ouve a própria base
                     if (u.division === currentUser.division) canHear = true;
+                    // BUG 1 FIX: Líder ouve outros líderes no PTT
+                    if (u.role === 'lider' && activeLeaderPTTs.has(u.socketId)) canHear = true;
+                    // Líder ouve o Mafra
+                    if (u.role === 'imperador') canHear = true;
+                } 
+                else if (currentUser.role === 'membro') {
+                    // Membro ouve a própria divisão
+                    if (u.division === currentUser.division) canHear = true;
+                    // BUG 3 FIX: Membro Púrpura ouve o Mafra
+                    if (currentUser.division === 'purpura' && u.role === 'imperador') canHear = true;
                 }
 
-                if (isMafraOverrideActive && u.role === 'imperador') {
-                    canHear = true;
+                // BUG 2 FIX: O EFEITO OVERRIDE
+                if (isMafraOverrideActive) {
+                    if (currentUser.role === 'lider') {
+                        // Líderes ficam surdos para a base e outros líderes, escutando SÓ o Mafra
+                        canHear = (u.role === 'imperador');
+                    } else if (currentUser.role === 'membro') {
+                        // Membros ficam surdos para a base/líder, escutando SÓ o Mafra
+                        canHear = (u.role === 'imperador');
+                    }
                 }
 
                 audioEl.muted = !canHear;
@@ -582,7 +602,7 @@
         const root = document.getElementById('topology-root');
         root.innerHTML = '';
         const mafraUser = systemUsers.find(u => u.role === 'imperador');
-        const purpuraUsers = systemUsers.filter(u => u.division === 'purpura' && u.status !== 'kicked');
+        const purpuraUsers = systemUsers.filter(u => u.division === 'purpura' && u.role !== 'imperador' && u.status !== 'kicked');
         const remainingDivisions = ['vermelho', 'amarelo', 'cinza'];
 
         let purpuraLeftHTML = ''; let purpuraRightHTML = '';
