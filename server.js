@@ -18,6 +18,17 @@ let currentMafraTargetDivision = null;
 let currentMGIStatusGlobal = "4-7 (Pacificação)";
 const activeIPs = new Map();
 
+// ===== ESTADO DO MINI-JOGO (PIQUE-ESCONDE) =====
+let gameState = {
+    active: false,          // partida rolando?
+    phase: 'idle',          // idle | hiding | seeking | results
+    seekerId: null,         // id do usuário que é o pegador
+    hiders: {},             // { userId: roomNumber } -- quem está em qual sala
+    eliminated: [],         // ids eliminados
+    attemptsLeft: 7,        // tentativas restantes do pegador
+    attackedRooms: []       // salas já atacadas
+};
+
 io.on('connection', (socket) => {
     console.log(`[M.G.I NEXUS] Agente conectado ao terminal: ${socket.id}`);
 
@@ -162,6 +173,111 @@ io.on('connection', (socket) => {
         isDecentralizedGlobal = status;
         socket.broadcast.emit('decentralize-network-broadcast', status);
     });
+
+    // ===== EVENTOS DO MINI-JOGO (PIQUE-ESCONDE) =====
+
+    socket.on('game-start-request', () => {
+        if (gameState.active) return; // já tem partida rolando
+
+        const eligiblePlayers = connectedUsers.filter(u => u.status !== 'banned' && u.status !== 'kicked');
+        if (eligiblePlayers.length < 2) {
+            socket.emit('game-error', 'É necessário pelo menos 2 jogadores conectados.');
+            return;
+        }
+
+        // Pegador escolhido aleatoriamente
+        const seeker = eligiblePlayers[Math.floor(Math.random() * eligiblePlayers.length)];
+
+        gameState = {
+            active: true,
+            phase: 'hiding',
+            seekerId: seeker.id,
+            hiders: {},
+            eliminated: [],
+            attemptsLeft: 7,
+            attackedRooms: []
+        };
+
+        io.emit('game-started', { seekerId: seeker.id, seekerName: seeker.name, players: eligiblePlayers });
+    });
+
+    socket.on('game-hide-in-room', (roomNumber) => {
+        if (!gameState.active || gameState.phase !== 'hiding') return;
+        const user = connectedUsers.find(u => u.socketId === socket.id);
+        if (!user || user.id === gameState.seekerId) return;
+
+        gameState.hiders[user.id] = roomNumber;
+        io.emit('game-player-hidden', { userId: user.id, userName: user.name, roomNumber });
+    });
+
+    socket.on('game-seeker-ready', () => {
+        if (!gameState.active || gameState.phase !== 'hiding') return;
+        const user = connectedUsers.find(u => u.socketId === socket.id);
+        if (!user || user.id !== gameState.seekerId) return;
+
+        gameState.phase = 'seeking';
+        io.emit('game-phase-seeking', { hidersCount: Object.keys(gameState.hiders).length });
+    });
+
+    socket.on('game-seeker-move', (position) => {
+        if (!gameState.active || gameState.phase !== 'seeking') return;
+        const user = connectedUsers.find(u => u.socketId === socket.id);
+        if (!user || user.id !== gameState.seekerId) return;
+
+        socket.broadcast.emit('game-seeker-position', position);
+    });
+
+    socket.on('game-attack-room', (roomNumber) => {
+        if (!gameState.active || gameState.phase !== 'seeking') return;
+        const user = connectedUsers.find(u => u.socketId === socket.id);
+        if (!user || user.id !== gameState.seekerId) return;
+        if (gameState.attemptsLeft <= 0) return;
+        if (gameState.attackedRooms.includes(roomNumber)) return;
+
+        gameState.attackedRooms.push(roomNumber);
+        gameState.attemptsLeft--;
+
+        const foundIds = Object.keys(gameState.hiders).filter(uid => gameState.hiders[uid] === roomNumber && !gameState.eliminated.includes(uid));
+        const foundPlayers = foundIds.map(uid => {
+            const u = connectedUsers.find(c => c.id === uid);
+            gameState.eliminated.push(uid);
+            return { id: uid, name: u ? u.name : 'Desconhecido' };
+        });
+
+        io.emit('game-room-attacked', {
+            roomNumber,
+            foundPlayers,
+            attemptsLeft: gameState.attemptsLeft
+        });
+
+        const totalHiders = Object.keys(gameState.hiders).length;
+        const allEliminated = gameState.eliminated.length >= totalHiders;
+        const noAttemptsLeft = gameState.attemptsLeft <= 0;
+
+        if (allEliminated || noAttemptsLeft) {
+            endGameAndShowPodium();
+        }
+    });
+
+    socket.on('game-stop-request', () => {
+        if (!gameState.active) return;
+        endGameAndShowPodium();
+    });
+
+    function endGameAndShowPodium() {
+        const survivors = Object.keys(gameState.hiders)
+            .filter(uid => !gameState.eliminated.includes(uid))
+            .map(uid => {
+                const u = connectedUsers.find(c => c.id === uid);
+                return { id: uid, name: u ? u.name : 'Desconhecido' };
+            });
+
+        gameState.phase = 'results';
+        io.emit('game-ended', { survivors, eliminatedCount: gameState.eliminated.length });
+
+        gameState.active = false;
+        gameState.phase = 'idle';
+    }
 
     socket.on('disconnect', () => {
         connectedUsers = connectedUsers.filter(u => u.socketId !== socket.id);

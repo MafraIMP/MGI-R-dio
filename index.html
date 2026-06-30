@@ -367,6 +367,10 @@
                 <button class="btn" id="btn-open-admin" onclick="toggleAdminPanel()" style="display:none; color: var(--mafra);">
                     <i class="fa-solid fa-sliders"></i> PAINEL ADM
                 </button>
+
+                <button class="btn" id="btn-open-game" onclick="toggleGameOverlay()" style="color: var(--success); border-color: var(--success);">
+                    <i class="fa-solid fa-gamepad"></i> <span>MODO JOGO</span>
+                </button>
             </div>
         </div>
 
@@ -377,6 +381,51 @@
                 <span style="font-family:var(--font-ui); font-size:0.65rem; color:#666;">RUÍDO (<span id="noise-gate-val">15</span>)</span>
                 <input type="range" id="noise-gate-slider" min="1" max="100" value="15">
             </div>
+        </div>
+    </div>
+
+    <!-- OVERLAY DO MINI-JOGO (PIQUE-ESCONDE) -->
+    <div id="game-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background: var(--bg-deep); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 50px 50px; z-index: 2000; flex-direction: column;">
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; padding: 15px 25px; border-bottom: 1px solid var(--mafra);">
+            <h2 style="font-family: var(--font-display); color: var(--success); letter-spacing: 2px;"><i class="fa-solid fa-gamepad"></i> MODO JOGO // OPERAÇÃO OCULTAÇÃO</h2>
+            <i class="fa-solid fa-xmark" style="cursor:pointer; font-size:1.5rem; color: var(--danger);" onclick="closeGameOverlay()"></i>
+        </div>
+
+        <!-- TELA: LOBBY (esperando início) -->
+        <div id="game-screen-lobby" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px;">
+            <i class="fa-solid fa-eye-slash" style="font-size:4rem; color: var(--mafra); opacity:0.5;"></i>
+            <p style="font-family: var(--font-ui); color:#888; text-align:center; max-width:500px;">Um agente será escolhido aleatoriamente como PEGADOR. Os demais deverão se esconder em um dos 9 cômodos. O pegador terá 7 tentativas para encontrá-los.</p>
+            <button class="btn" style="border-color: var(--success); color: var(--success); padding: 12px 30px; font-size:1rem;" onclick="requestGameStart()">
+                <i class="fa-solid fa-play"></i> INICIAR PARTIDA
+            </button>
+            <p id="game-error-msg" style="color: var(--danger); font-family: var(--font-ui); font-size:0.8rem; display:none;"></p>
+        </div>
+
+        <!-- TELA: ESCONDENDO (hiders escolhem sala) -->
+        <div id="game-screen-hiding" style="display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:20px;">
+            <h3 id="game-hiding-title" style="font-family: var(--font-ui); color: var(--amarelo);">ESCOLHA UM CÔMODO PARA SE ESCONDER</h3>
+            <div id="game-room-grid" style="display:grid; grid-template-columns: repeat(3, 110px); gap:12px;"></div>
+            <p id="game-hiding-status" style="font-family: var(--font-ui); color:#888; font-size:0.85rem;"></p>
+        </div>
+
+        <!-- TELA: BUSCANDO (mapa 2D com WASD) -->
+        <div id="game-screen-seeking" style="display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:10px;">
+            <div style="display:flex; gap:25px; align-items:center; font-family: var(--font-ui); font-size:0.85rem;">
+                <span style="color: var(--mafra);">TENTATIVAS RESTANTES: <span id="game-attempts-left" style="color: var(--danger); font-weight:bold;">7</span></span>
+                <span id="game-seeker-indicator" style="color: var(--success);"></span>
+            </div>
+            <canvas id="game-canvas" width="900" height="600" style="border:2px solid var(--mafra); background:#0a0a0d;"></canvas>
+            <p id="game-seeking-hint" style="font-family: var(--font-ui); color:#666; font-size:0.75rem;">WASD para mover // ESPAÇO para atacar o cômodo atual</p>
+        </div>
+
+        <!-- TELA: PÓDIO -->
+        <div id="game-screen-results" style="display:none; flex:1; flex-direction:column; align-items:center; justify-content:center; gap:20px;">
+            <h2 style="font-family: var(--font-display); color: var(--success); font-size:2rem;"><i class="fa-solid fa-trophy"></i> RESULTADO DA OPERAÇÃO</h2>
+            <div id="game-podium-list" style="display:flex; flex-direction:column; gap:10px; min-width:300px;"></div>
+            <button class="btn" style="border-color: var(--mafra); color: var(--mafra); margin-top:10px;" onclick="resetGameToLobby()">
+                <i class="fa-solid fa-arrow-rotate-left"></i> VOLTAR AO LOBBY
+            </button>
         </div>
     </div>
 
@@ -1301,6 +1350,329 @@
             socket.emit('join-network', currentUser);
         }
     });
+
+    // ===================================================================
+    // MÓDULO: MINI-JOGO PIQUE-ESCONDE (isolado, não interfere no rádio)
+    // ===================================================================
+    (function() {
+        let gameActive = false;
+        let myRole = null;          // 'seeker' | 'hider'
+        let myHidingRoom = null;
+        let gamePlayers = [];
+        let savedAudioRoutingFn = null;
+
+        // --- Mapa: 9 salas em grade 3x3, cada uma com paredes (AABB) ---
+        const ROOM_SIZE = 280;
+        const WALL_THICK = 8;
+        const rooms = []; // {num, x, y, w, h}
+        for (let i = 0; i < 9; i++) {
+            const col = i % 3, row = Math.floor(i / 3);
+            rooms.push({ num: i + 1, x: col * ROOM_SIZE, y: row * ROOM_SIZE, w: ROOM_SIZE, h: ROOM_SIZE });
+        }
+        const MAP_W = ROOM_SIZE * 3, MAP_H = ROOM_SIZE * 3;
+
+        let canvas, ctx;
+        let seekerPos = { x: MAP_W / 2, y: MAP_H / 2 };
+        let keysDown = {};
+        let animFrameId = null;
+        let lastAttackTime = 0;
+
+        function getRoomAt(x, y) {
+            return rooms.find(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+        }
+
+        // --- UI: abrir/fechar overlay ---
+        window.toggleGameOverlay = function() {
+            const overlay = document.getElementById('game-overlay');
+            const isOpen = overlay.style.display === 'flex';
+            overlay.style.display = isOpen ? 'none' : 'flex';
+            if (!isOpen) showGameScreen('lobby');
+        };
+        window.closeGameOverlay = function() {
+            document.getElementById('game-overlay').style.display = 'none';
+            stopGameLoop();
+        };
+
+        function showGameScreen(name) {
+            ['lobby', 'hiding', 'seeking', 'results'].forEach(s => {
+                document.getElementById('game-screen-' + s).style.display = (s === name) ? 'flex' : 'none';
+            });
+        }
+
+        // --- Iniciar partida ---
+        window.requestGameStart = function() {
+            socket.emit('game-start-request');
+        };
+
+        socket.on('game-error', (msg) => {
+            const el = document.getElementById('game-error-msg');
+            el.innerText = msg;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 4000);
+        });
+
+        socket.on('game-started', ({ seekerId, seekerName, players }) => {
+            gameActive = true;
+            gamePlayers = players;
+            myHidingRoom = null;
+            myRole = (currentUser.id === seekerId) ? 'seeker' : 'hider';
+
+            if (myRole === 'hider') {
+                document.getElementById('game-hiding-title').innerText = 'ESCOLHA UM CÔMODO PARA SE ESCONDER';
+                renderHidingRoomGrid();
+                document.getElementById('game-hiding-status').innerText = 'Aguardando demais agentes se esconderem...';
+                showGameScreen('hiding');
+            } else {
+                document.getElementById('game-hiding-title').innerText = 'AGENTES SE ESCONDENDO...';
+                document.getElementById('game-hiding-status').innerText = '';
+                showGameScreen('hiding');
+                document.getElementById('game-room-grid').innerHTML = `
+                    <div style="grid-column: 1/4; text-align:center; font-family: var(--font-ui); color:var(--success);">
+                        <i class="fa-solid fa-crosshairs" style="font-size:2.5rem;"></i>
+                        <p style="margin-top:15px;">VOCÊ É O PEGADOR. Aguarde os demais se esconderem...</p>
+                        <button class="btn" style="border-color: var(--success); color: var(--success); margin-top:15px;" onclick="seekerReadyToHunt()">
+                            <i class="fa-solid fa-check"></i> COMEÇAR BUSCA
+                        </button>
+                    </div>`;
+            }
+        });
+
+        function renderHidingRoomGrid() {
+            const grid = document.getElementById('game-room-grid');
+            grid.innerHTML = '';
+            for (let i = 1; i <= 9; i++) {
+                const div = document.createElement('div');
+                div.style.cssText = `width:110px; height:90px; border:2px solid var(--mafra); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; font-family:var(--font-ui); color:#fff; background:rgba(138,43,226,0.08); transition: background 0.2s;`;
+                div.innerHTML = `<span style="font-size:1.8rem; font-weight:bold;">${i}</span><span style="font-size:0.65rem; color:#888;">CÔMODO</span>`;
+                div.onmouseenter = () => div.style.background = 'rgba(138,43,226,0.3)';
+                div.onmouseleave = () => div.style.background = (myHidingRoom === i) ? 'rgba(0,255,85,0.3)' : 'rgba(138,43,226,0.08)';
+                div.onclick = () => {
+                    myHidingRoom = i;
+                    socket.emit('game-hide-in-room', i);
+                    document.getElementById('game-hiding-status').innerText = `Você está escondido no Cômodo ${i}. Pode continuar falando normalmente.`;
+                    renderHidingRoomGrid();
+                };
+                if (myHidingRoom === i) div.style.background = 'rgba(0,255,85,0.3)';
+                grid.appendChild(div);
+            }
+        }
+
+        window.seekerReadyToHunt = function() {
+            socket.emit('game-seeker-ready');
+        };
+
+        socket.on('game-phase-seeking', () => {
+            if (myRole === 'seeker') {
+                seekerPos = { x: MAP_W / 2, y: MAP_H / 2 };
+                showGameScreen('seeking');
+                document.getElementById('game-seeker-indicator').innerText = 'VOCÊ É O PEGADOR';
+                startGameLoop();
+                applyGameAudioOverride();
+            } else {
+                showGameScreen('seeking');
+                document.getElementById('game-seeker-indicator').innerText = myHidingRoom ? `ESCONDIDO NO CÔMODO ${myHidingRoom}` : 'AGUARDANDO...';
+                document.getElementById('game-seeking-hint').innerText = 'Continue falando normalmente. Fique em silêncio se quiser despistar o pegador.';
+                drawStaticMapForHider();
+                applyGameAudioOverride();
+            }
+        });
+
+        // --- Sobrepõe roteamento de áudio: pegador só ouve quem está na sala em que ele está ---
+        function applyGameAudioOverride() {
+            if (!savedAudioRoutingFn) savedAudioRoutingFn = window.enforceAudioRouting;
+            window.enforceAudioRouting = function() {
+                if (!gameActive) { savedAudioRoutingFn(); return; }
+                systemUsers.forEach(u => {
+                    if (u.id === currentUser.id || !u.socketId) return;
+                    const audioEl = document.getElementById(`audio_${u.socketId}`);
+                    if (!audioEl) return;
+
+                    if (myRole === 'seeker') {
+                        const room = getRoomAt(seekerPos.x, seekerPos.y);
+                        const targetHider = gamePlayers.find(p => p.id === u.id);
+                        audioEl.muted = true; // padrão: mudo
+                        if (room && targetHider) {
+                            // será desmutado via evento game-player-hidden + checagem de sala atual
+                            audioEl.dataset.gameRoom = window.__hidersRoomMap?.[u.id] || '';
+                            if (audioEl.dataset.gameRoom == room.num) audioEl.muted = false;
+                        }
+                    } else {
+                        // hiders e o pegador se ouvem livremente entre si (igual chat de sala compartilhada)
+                        audioEl.muted = false;
+                    }
+                });
+            };
+        }
+
+        function restoreNormalAudioRouting() {
+            if (savedAudioRoutingFn) {
+                window.enforceAudioRouting = savedAudioRoutingFn;
+                savedAudioRoutingFn = null;
+            }
+        }
+
+        window.__hidersRoomMap = {};
+        socket.on('game-player-hidden', ({ userId, roomNumber }) => {
+            window.__hidersRoomMap[userId] = roomNumber;
+        });
+
+        // --- Loop do jogo (apenas para o pegador: WASD + render canvas) ---
+        function startGameLoop() {
+            canvas = document.getElementById('game-canvas');
+            ctx = canvas.getContext('2d');
+            document.addEventListener('keydown', onGameKeyDown);
+            document.addEventListener('keyup', onGameKeyUp);
+            loopTick();
+        }
+
+        function stopGameLoop() {
+            if (animFrameId) cancelAnimationFrame(animFrameId);
+            document.removeEventListener('keydown', onGameKeyDown);
+            document.removeEventListener('keyup', onGameKeyUp);
+            keysDown = {};
+        }
+
+        function onGameKeyDown(e) {
+            if (myRole !== 'seeker') return;
+            keysDown[e.key.toLowerCase()] = true;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                const now = Date.now();
+                if (now - lastAttackTime < 600) return; // evita spam
+                lastAttackTime = now;
+                const room = getRoomAt(seekerPos.x, seekerPos.y);
+                if (room) socket.emit('game-attack-room', room.num);
+            }
+        }
+        function onGameKeyUp(e) { keysDown[e.key.toLowerCase()] = false; }
+
+        function loopTick() {
+            if (!gameActive || myRole !== 'seeker') return;
+            const SPEED = 4;
+            let nx = seekerPos.x, ny = seekerPos.y;
+            if (keysDown['w']) ny -= SPEED;
+            if (keysDown['s']) ny += SPEED;
+            if (keysDown['a']) nx -= SPEED;
+            if (keysDown['d']) nx += SPEED;
+
+            // Colisão com bordas do mapa (paredes externas)
+            nx = Math.max(15, Math.min(MAP_W - 15, nx));
+            ny = Math.max(15, Math.min(MAP_H - 15, ny));
+
+            seekerPos.x = nx; seekerPos.y = ny;
+            socket.emit('game-seeker-move', seekerPos);
+            drawSeekerMap();
+            enforceAudioRouting();
+            animFrameId = requestAnimationFrame(loopTick);
+        }
+
+        function drawRoomsBase() {
+            ctx.fillStyle = '#0a0a0d';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            rooms.forEach(r => {
+                ctx.strokeStyle = '#8a2be2';
+                ctx.lineWidth = WALL_THICK;
+                ctx.strokeRect(r.x, r.y, r.w, r.h);
+                ctx.fillStyle = 'rgba(138,43,226,0.5)';
+                ctx.font = 'bold 22px Space Mono';
+                ctx.fillText(r.num, r.x + 12, r.y + 28);
+            });
+        }
+
+        function drawSeekerMap() {
+            drawRoomsBase();
+            // destaca sala atual do pegador
+            const room = getRoomAt(seekerPos.x, seekerPos.y);
+            if (room) {
+                ctx.strokeStyle = '#00ff55';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(room.x + 4, room.y + 4, room.w - 8, room.h - 8);
+            }
+            // boneco do pegador (círculo)
+            ctx.beginPath();
+            ctx.arc(seekerPos.x, seekerPos.y, 14, 0, Math.PI * 2);
+            ctx.fillStyle = '#00ff55';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            document.getElementById('game-attempts-left').innerText = window.__attemptsLeft ?? 7;
+        }
+
+        function drawStaticMapForHider() {
+            canvas = document.getElementById('game-canvas');
+            ctx = canvas.getContext('2d');
+            drawRoomsBase();
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.font = '14px Space Mono';
+            ctx.fillText('Aguardando movimento do pegador...', 20, MAP_H - 20);
+        }
+
+        socket.on('game-seeker-position', (pos) => {
+            // hiders podem ver posição aproximada do pegador (mapa estático com marcador)
+            if (myRole !== 'hider' || !canvas) return;
+            drawRoomsBase();
+            const room = getRoomAt(pos.x, pos.y);
+            if (room) {
+                ctx.strokeStyle = '#ff003c';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(room.x + 4, room.y + 4, room.w - 8, room.h - 8);
+            }
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 14, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff003c';
+            ctx.fill();
+        });
+
+        socket.on('game-room-attacked', ({ roomNumber, foundPlayers, attemptsLeft }) => {
+            window.__attemptsLeft = attemptsLeft;
+            document.getElementById('game-attempts-left').innerText = attemptsLeft;
+
+            if (foundPlayers.length > 0) {
+                const names = foundPlayers.map(p => p.name).join(', ');
+                const wasMe = foundPlayers.some(p => p.id === currentUser.id);
+                if (wasMe) {
+                    document.getElementById('game-seeking-hint').innerText = `VOCÊ FOI ENCONTRADO no Cômodo ${roomNumber}!`;
+                    document.getElementById('game-seeking-hint').style.color = 'var(--danger)';
+                }
+                playSystemChime('exit');
+                if (myRole === 'seeker' && ctx) {
+                    ctx.fillStyle = 'rgba(255,0,60,0.85)';
+                    ctx.font = 'bold 16px Space Mono';
+                    const room = rooms.find(r => r.num === roomNumber);
+                    if (room) ctx.fillText(`ENCONTRADO: ${names}`, room.x + 10, room.y + room.h - 15);
+                }
+            }
+        });
+
+        socket.on('game-ended', ({ survivors, eliminatedCount }) => {
+            gameActive = false;
+            stopGameLoop();
+            restoreNormalAudioRouting();
+            enforceAudioRouting();
+
+            const list = document.getElementById('game-podium-list');
+            list.innerHTML = '';
+            if (survivors.length === 0) {
+                list.innerHTML = `<p style="font-family:var(--font-ui); color:var(--danger); text-align:center;">Nenhum agente sobreviveu. O Pegador venceu a operação.</p>`;
+            } else {
+                survivors.forEach((s, idx) => {
+                    const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '🎖️';
+                    list.innerHTML += `<div style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border:1px solid var(--success); background:rgba(0,255,85,0.08); font-family:var(--font-ui);">
+                        <span>${medal} ${s.name}</span><span style="color:var(--success);">SOBREVIVEU</span>
+                    </div>`;
+                });
+            }
+            showGameScreen('results');
+        });
+
+        window.resetGameToLobby = function() {
+            myRole = null; myHidingRoom = null; gamePlayers = [];
+            window.__hidersRoomMap = {};
+            showGameScreen('lobby');
+        };
+    })();
 </script>
 </body>
 </html>
