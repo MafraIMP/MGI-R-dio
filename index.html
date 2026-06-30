@@ -1025,8 +1025,21 @@
                         <button class="action-btn ban" onclick="admAction('${u.id}', 'ban')">${isBanned ? 'Remover Ban' : 'Banir'}</button>
                         <button class="action-btn" onclick="admAction('${u.id}', 'kick')">Expulsar</button>
                     </div>
+                    <div style="margin-top:6px; display:flex; align-items:center; gap:8px;">
+                        <span style="font-family:var(--font-ui); font-size:0.7rem; color:#888;">DIVISÃO:</span>
+                        <select onchange="admChangeDivision('${u.id}', this.value)" style="background:#000; color:#fff; border:1px solid var(--mafra); padding:4px 6px; font-family:var(--font-ui); font-size:0.7rem;">
+                            <option value="vermelho" ${u.division==='vermelho'?'selected':''}>VERMELHA</option>
+                            <option value="amarelo" ${u.division==='amarelo'?'selected':''}>AMARELA</option>
+                            <option value="purpura" ${u.division==='purpura'?'selected':''}>PÚRPURA</option>
+                            <option value="cinza" ${u.division==='cinza'?'selected':''}>CINZA</option>
+                        </select>
+                    </div>
                 </div>`;
         });
+    }
+
+    function admChangeDivision(targetId, newDivision) {
+        socket.emit('change-division', { targetId, newDivision });
     }
 
     function admAction(id, action, fromServer) { 
@@ -1104,6 +1117,20 @@
         activeMafraTargetDivision = division;
         updateCommsStatusText();
         renderTopology();
+    });
+
+    socket.on('division-changed', ({ targetId, newDivision }) => {
+        const user = systemUsers.find(u => u.id === targetId);
+        if (user) {
+            user.division = newDivision;
+            // Se for o próprio usuário, atualiza o currentUser também
+            if (currentUser && currentUser.id === targetId) {
+                currentUser.division = newDivision;
+            }
+            renderTopology();
+            renderAdminPanel();
+            enforceAudioRouting();
+        }
     });
 
     socket.on('mgi-status-broadcast', (statusString) => {
