@@ -36,21 +36,6 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // SISTEMA ANTI-ALT ACCOUNTS (BLOQUEIO POR IP)
-        // Bypass liberado apenas com o código de autorização especial
-        const altBypassAtivo = (authCode === 'admin123');
-        if (!altBypassAtivo) {
-            if (activeIPs.has(clientIP)) {
-                const registeredName = activeIPs.get(clientIP);
-                if (registeredName !== userData.name) {
-                    socket.emit('kicked-from-network');
-                    return; 
-                }
-            } else {
-                activeIPs.set(clientIP, userData.name);
-            }
-        }
-
         // Bloqueia a conexão e notifica administradores se o nome estiver na lista de banimento
         if (bannedIdentities.includes(userData.name)) {
             socket.emit('banned-from-network-lock');
@@ -154,6 +139,14 @@ io.on('connection', (socket) => {
                 }
                 connectedUsers = connectedUsers.filter(u => u.id !== targetId);
             }
+        }
+    });
+
+    socket.on('change-division', ({ targetId, newDivision }) => {
+        const user = connectedUsers.find(u => u.id === targetId);
+        if (user) {
+            user.division = newDivision;
+            io.emit('division-changed', { targetId, newDivision });
         }
     });
 
